@@ -569,6 +569,7 @@ window.__ModuleLoader__.load({
       var filterMenuOpen = filterMenuState[0]
       var setFilterMenuOpen = filterMenuState[1]
       var filterPickerRef = useRef(null)
+      var lastSignatureRef = useRef('')
       var pageState = useState(30)
       var visibleLimit = pageState[0]
       var setVisibleLimit = pageState[1]
@@ -601,6 +602,18 @@ window.__ModuleLoader__.load({
         if (!sessionId || !api) return
         api.list(sessionId).then(function (list) {
           var next = Array.isArray(list) ? list : []
+          var signature = next.map(function (record) {
+            return [record.sessionId, record.turn, record.status, record.pinned ? 1 : 0,
+              record.contentRemoved ? 1 : 0, record.added || 0, record.deleted || 0,
+              (record.files || []).map(function (file) { return file.path }).join(','),
+              record.sessionTitle || ''].join(':')
+          }).join('|')
+          if (signature === lastSignatureRef.current) {
+            setLoaded(true)
+            setError('')
+            return
+          }
+          lastSignatureRef.current = signature
           setRecords(next)
           setLoaded(true)
           setError('')
@@ -625,11 +638,15 @@ window.__ModuleLoader__.load({
 
       useEffect(function () {
         refresh()
+      }, [refresh])
+
+      useEffect(function () {
+        if (collapsed) return undefined
         var timer = setInterval(function () {
           if (!document.hidden) refresh()
-        }, 2000)
+        }, 5000)
         return function () { clearInterval(timer) }
-      }, [refresh])
+      }, [collapsed, refresh])
 
       useEffect(function () {
         setShowDiff(false)
