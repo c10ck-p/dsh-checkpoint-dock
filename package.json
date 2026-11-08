@@ -11,6 +11,14 @@
     "diff",
     "plugin"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c10ck-p/dsh-checkpoint-dock.git"
+  },
+  "homepage": "https://github.com/c10ck-p/dsh-checkpoint-dock#readme",
+  "bugs": {
+    "url": "https://github.com/c10ck-p/dsh-checkpoint-dock/issues"
+  },
   "type": "module",
   "main": "./index.mjs",
   "exports": {
