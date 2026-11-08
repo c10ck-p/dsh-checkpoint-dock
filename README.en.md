@@ -29,18 +29,16 @@ DSH's built-in “edited N files” card tells you what a turn produced. This pl
 
 ## How it compares
 
-> Information about similar tools comes from their public docs (as of Nov 2026). This is a mechanism comparison only; it does not evaluate implementations or name specific projects.
+> Information about similar tools comes from their public docs (as of Nov 2026). This is a mechanism comparison only; it does not evaluate implementations. Current reference implementations: `dsh-checkpoint-rewind` (workspace/config/session snapshots), `dsh-snapshot-manager` (whole-workspace snapshots and conversation rollback), `dsh-checkpoint-diff` (read-only diff on top of rewind). Names only, no links.
 
-| Capability | This plugin | DSH built-in card | Snapshot-style tools |
-| --- | --- | --- | --- |
-| Scope | Files changed per turn | Displays the current turn | Whole workspace, config, or session cursor (tool-dependent) |
-| Diff | Inline before/after | Opens changes-review | Panel diff or paired diffs |
-| Keep / Undo / Redo | Yes | No | Rollback / selective restore |
-| Revert to a specific turn | Yes | No | Yes (some include conversation or config) |
-| Git dependency | None | None | Some rely on git object storage |
-| Restore conversation / config | No | No | Partial support |
-| Best for | Day-to-day file edits | Confirming a turn's output | Broad snapshot rollback |
-| Old checkpoint durability | Unaffected by `git gc` | — | git-backed implementations may be affected |
+| Capability | This plugin | `dsh-checkpoint-rewind` | `dsh-snapshot-manager` | `dsh-checkpoint-diff` |
+| --- | --- | --- | --- | --- |
+| Scope | Files changed per turn | Workspace + config + session cursor | Whole workspace | No snapshots; reads rewind snapshots |
+| Diff | Inline before/after | Tree diff in panel | Snapshot diff in panel | Any two checkpoints |
+| Restore | Keep / Undo / Redo / Revert here | `/rewind`, selective restore | File rollback + conversation fork | Rollback (via rewind) |
+| Conversation / config restore | No | Yes | Conversation | No |
+| Git dependency | None | git or copy mode | None | Inherited from rewind |
+| Best for | Day-to-day file edits | Whole three-state rollback | Broad snapshot rollback | Inspecting historical diffs |
 
 Snapshot-style tools are a better fit when you need workspace, config, or session coverage. This plugin takes a different path: **small, fast, and file-focused**. No whole-workspace copy, no conversation fork, no config restore, no git. The trade-off is that it covers file contents only, not session state.
 
