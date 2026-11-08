@@ -18,17 +18,25 @@ DSH 自带的“已编辑 N 个文件”卡片负责告诉你这一轮产出了�
 
 ## 和同类插件的区别
 
-| 能力 | dsh-checkpoint-dock | DSH 自带变更卡片 | 整工作区快照类插件 |
-| --- | --- | --- | --- |
-| 记录范围 | 每轮改动的文件 | 仅展示当轮变更 | 整个工作区 |
-| 查看 diff | dock 内 before/after | 打开 changes-review | 支持 |
-| 保留 / 撤销 / 重做 | 支持 | 无 | 以整体回滚为主 |
-| 回退到指定轮次 | 支持 | 无 | 支持 |
-| 恢复对话 / 配置 | 不支持 | 不支持 | 部分支持 |
-| 依赖 git | 不依赖 | 不依赖 | 部分依赖 / 可选 |
-| 适合 | 日常逐轮改文件 | 快速确认本轮产物 | 大范围、会话级回滚 |
+> 竞品信息来源于各项目官方仓库 README（官网文档），截至 2026-11；仅作功能对照，不评价实现质量。
 
-这个插件不试图替代整工作区快照。它的优势是**轻、快、直接围绕文件改动**：不恢复对话，不恢复配置，也不依赖 git；代价是只覆盖文件内容，不覆盖会话状态。
+| 能力 | 本插件 | DSH 自带变更卡片 | dsh-checkpoint-rewind | dsh-snapshot-manager | dsh-checkpoint-diff |
+| --- | --- | --- | --- | --- | --- |
+| 记录范围 | 每轮改动的文件 | 仅展示当轮变更 | 工作区 + 配置 + 会话游标 | 整工作区（每轮增量快照） | 不自建快照，读取 rewind 数据 |
+| 查看 diff | dock 内 before/after | 打开 changes-review | 面板内 diff | 面板内 diff | 专用 diff 面板 |
+| 保留 / 撤销 / 重做 | 支持 | 无 | 回滚 / 选择性恢复 | 回滚（文件 + 对话） | 无 |
+| 回退到指定轮次 | 支持 | 无 | 支持 | 支持 | 支持查看 / rollback |
+| 恢复对话 / 配置 | 不支持 | 不支持 | 会话 fork + 配置 | 对话 fork | 不支持 |
+| 依赖 git | 不依赖 | 不依赖 | git 或 copy provider，可选 | 不依赖 | 继承 rewind |
+| 适合 | 逐轮文件改动 | 确认本轮产物 | 工作区 / 配置 / 会话级回滚 | 大范围快照回滚 | 只读审查、配对 diff |
+
+竞品简述（均据其官方 README）：
+
+- **[dsh-checkpoint-rewind](https://github.com/perrylink/dsh-checkpoint-rewind)**：三态检查点（工作区、配置、会话游标），支持 git / copy provider、`/rewind` 和会话 fork。
+- **[dsh-snapshot-manager](https://github.com/985451842/dsh-snapshot-manager)**：每个 `turn/start` 做整工作区增量快照，回滚文件并通过 fork 回退对话。
+- **[dsh-checkpoint-diff](https://github.com/tmpdot/dsh-checkpoint-diff)**：建立在 rewind 之上的只读 diff / rollback 查看器，本身不产生快照。
+
+这个插件不试图替代快照类插件。它的优势是**轻、快、直接围绕文件改动**：不复制整个工作区，不 fork 对话，不恢复配置，也不依赖 git；旧检查点不会因为 `git gc` 失效。代价是只覆盖文件内容，不覆盖会话状态。
 
 ## 安装
 

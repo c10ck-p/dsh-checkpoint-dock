@@ -18,17 +18,25 @@ DSH's built-in “edited N files” card tells you what a turn produced. This pl
 
 ## How it compares
 
-| | dsh-checkpoint-dock | DSH built-in card | Whole-workspace snapshot plugins |
-| --- | --- | --- | --- |
-| Scope | Files changed per turn | Displays the current turn | Entire workspace |
-| Diff | Inline before/after | Opens changes-review | Supported |
-| Keep / Undo / Redo | Yes | No | Mainly full rollback |
-| Revert to a specific turn | Yes | No | Yes |
-| Restore conversation / config | No | No | Partial |
-| Git dependency | None | None | Optional / partial |
-| Best for | Day-to-day file edits | Confirming a turn's output | Broad or session-level rollback |
+> Competitor information comes from each project's official repository README (official docs), as of Nov 2026. This is a feature comparison only, not a judgment of implementation quality.
 
-This plugin is not a replacement for whole-workspace snapshots. Its strength is being **small, fast, and focused on file changes**: no conversation restore, no config restore, no git. The trade-off is that it only covers file contents, not session state.
+| Capability | dsh-checkpoint-dock | DSH built-in card | dsh-checkpoint-rewind | dsh-snapshot-manager | dsh-checkpoint-diff |
+| --- | --- | --- | --- | --- | --- |
+| Scope | Files changed per turn | Displays the current turn | Workspace + config + session cursor | Whole workspace (per-turn incremental) | No snapshots of its own; reads rewind data |
+| Diff | Inline before/after | Opens changes-review | Panel diff | Panel diff | Dedicated diff panel |
+| Keep / Undo / Redo | Yes | No | Rollback / selective restore | Rollback (files + conversation) | No |
+| Revert to a specific turn | Yes | No | Yes | Yes | View / rollback |
+| Restore conversation / config | No | No | Session fork + config | Conversation fork | No |
+| Git dependency | None | None | Git or copy provider (optional) | None | Inherits rewind |
+| Best for | Day-to-day file edits | Confirming a turn's output | Workspace / config / session rollback | Broad snapshot rollback | Read-only review and paired diffs |
+
+Competitor summaries (all from their official READMEs):
+
+- **[dsh-checkpoint-rewind](https://github.com/perrylink/dsh-checkpoint-rewind)**: three-state checkpoints (workspace, config, session cursor), with git or copy providers, `/rewind`, and session forking.
+- **[dsh-snapshot-manager](https://github.com/985451842/dsh-snapshot-manager)**: an incremental whole-workspace snapshot at every `turn/start`; rollback restores files and forks the conversation.
+- **[dsh-checkpoint-diff](https://github.com/tmpdot/dsh-checkpoint-diff)**: a read-only diff/rollback viewer built on top of rewind; it does not create snapshots itself.
+
+This plugin is not a replacement for snapshot-style plugins. Its strength is being **small, fast, and focused on file changes**: no whole-workspace copy, no conversation fork, no config restore, no git — and old checkpoints are not exposed to `git gc`. The trade-off is that it only covers file contents, not session state.
 
 ## Install
 
