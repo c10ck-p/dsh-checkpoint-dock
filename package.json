@@ -1,6 +1,6 @@
 {
   "name": "dsh-checkpoint-dock",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A resident checkpoint dock for DSH: keep, undo, redo, revert, diff, pin, and clean the files an agent changed in each turn.",
   "keywords": [
     "dsh",
@@ -37,7 +37,8 @@
     "LICENSE",
     "README.md",
     "README.en.md",
-    "docs"
+    "docs",
+    "CHANGELOG.md"
   ],
   "dsh": {
     "manifestVersion": 1,
@@ -53,14 +54,16 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-typert-protocol": "*"
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh": ">=0.2.2-rc.1 <0.2.3-0"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
-    "dsh": ">=0.2.0"
+    "dsh": ">=0.2.2-rc.1 <0.2.3-0"
   },
   "scripts": {
-    "check": "node --check index.mjs && node --check typert.host.mjs && node --check lib/store.mjs && node --check lib/service.mjs && node --check lib/wire.mjs && node --check client/index.js"
+    "check": "node --check index.mjs && node --check typert.host.mjs && node --check lib/store.mjs && node --check lib/service.mjs && node --check lib/wire.mjs && node --check client/index.js",
+    "test": "node --test test/store.test.mjs"
   },
   "publishConfig": {
     "access": "public"

@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: npm-publish
@@ -43,7 +44,10 @@ jobs:
       - name: Syntax check
         run: npm run check
 
+      - name: Unit tests
+        run: npm test
+
       - name: Publish to npm
-        run: npm publish --access public
+        run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

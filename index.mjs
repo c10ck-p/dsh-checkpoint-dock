@@ -94,6 +94,17 @@ export async function apply(ctx, config) {
   const root = path.join(home, 'edit-checkpoints')
   const store = new EditCheckpointStore(root, {
     titleResolver: (sessionId) => sessionTitleFromServices(ctx, sessionId),
+    // Liveness for the orphan report: a session is gone only when the live
+    // registry does not know it and its directory under $DSH_HOME/sessions is
+    // gone too (the store checks the directory itself).
+    sessionLookup: (sessionId) => {
+      try {
+        return typeof ctx.sessions?.get === 'function' && ctx.sessions.get(sessionId) !== undefined
+      } catch {
+        return false
+      }
+    },
+    logger: ctx.logger,
   })
   /** @type {WeakMap<any, Map<number, number>>} */
   const announcedSeq = new WeakMap()
@@ -104,6 +115,15 @@ export async function apply(ctx, config) {
     } catch {
       // Logging must never break a write.
     }
+  }
+
+  /**
+   * Log a background write failure and keep it for the session's storage panel.
+   * @param {any} session
+   */
+  const warnSession = (session) => (error) => {
+    warn(error)
+    store.noteFailure(session?.id, error)
   }
 
   const captureIntent = async (target, actor, next) => {
@@ -129,6 +149,9 @@ export async function apply(ctx, config) {
       })
     } catch (error) {
       warn(error)
+      // A capture that failed is a checkpoint the user thinks exists; keep the
+      // reason for the storage panel instead of only the host log.
+      store.noteFailure(actor?.agent?.session?.id, error)
     }
     return intent
   }
@@ -143,7 +166,7 @@ export async function apply(ctx, config) {
         // A crash before turn/end leaves the previous record open. Settle it
         // against the current disk before this new turn starts capturing, so a
         // stale open record cannot block keep/revert forever.
-        void store.recoverOpen(session.id, event.data.turn).catch(warn)
+        void store.recoverOpen(session.id, event.data.turn).catch(warnSession(session))
         return
       }
       if (event.type === 'workspace/changes') {
@@ -154,15 +177,15 @@ export async function apply(ctx, config) {
           announcedSeq.set(session, map)
         }
         map.set(turn, event.seq)
-        void store.noteSeq(session.id, turn, event.seq).catch(warn)
-        void store.seal(session.id, turn, event.seq).catch(warn)
+        void store.noteSeq(session.id, turn, event.seq).catch(warnSession(session))
+        void store.seal(session.id, turn, event.seq).catch(warnSession(session))
         return
       }
       if (event.type !== 'turn/end') return
       const turn = event.data.turn
       const seq = announcedSeq.get(session)?.get(turn) ?? event.seq
-      void store.noteSeq(session.id, turn, seq).catch(warn)
-      void store.seal(session.id, turn, seq).catch(warn)
+      void store.noteSeq(session.id, turn, seq).catch(warnSession(session))
+      void store.seal(session.id, turn, seq).catch(warnSession(session))
     } catch (error) {
       warn(error)
     }

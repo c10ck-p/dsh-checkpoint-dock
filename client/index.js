@@ -233,6 +233,13 @@ window.__ModuleLoader__.load({
         confirmClean: '确认清理',
         cleanDone: '已清理 {n} 条记录',
         cleanNothing: '没有可清理的旧内容',
+        storageOrphans: '已删除的会话：{sessions} 个会话 · {records} 条检查点 · {size}',
+        storageOrphanHint: '会话在 DSH 里被删除后，检查点会一直留在磁盘上，直到你手动清理。',
+        purgeOrphans: '清理已删除会话的检查点',
+        confirmPurge: '确认删除这些检查点',
+        purgeDone: '已清理 {records} 条检查点，释放 {size}',
+        purgeNothing: '没有可清理的已删除会话',
+        storageFailure: '最近一次写入失败：{message}',
         contentRemoved: '内容已清理',
         recovered: '已恢复',
         diff: '查看变更',
@@ -332,6 +339,13 @@ window.__ModuleLoader__.load({
         confirmClean: 'Confirm clean',
         cleanDone: 'Cleaned {n} records',
         cleanNothing: 'Nothing to clean',
+        storageOrphans: 'Deleted sessions: {sessions} sessions · {records} checkpoints · {size}',
+        storageOrphanHint: 'Deleting a session in DSH leaves its checkpoints on disk until you clean them up here.',
+        purgeOrphans: 'Clean up deleted sessions',
+        confirmPurge: 'Confirm deleting these checkpoints',
+        purgeDone: 'Removed {records} checkpoints and freed {size}',
+        purgeNothing: 'No checkpoints from deleted sessions',
+        storageFailure: 'Last write failed: {message}',
         contentRemoved: 'Content cleaned',
         recovered: 'Recovered',
         diff: 'View changes',
@@ -407,6 +421,10 @@ window.__ModuleLoader__.load({
       '.ecp_storageRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
       '.ecp_storageRow .ecp_btn{margin-left:auto}',
       '.ecp_storageTitle{color:var(--dsw-alias-label-primary);font-weight:500;margin-bottom:2px}',
+      '.ecp_storageWarn{color:var(--dsw-alias-state-error-primary,#d33);margin-top:4px}',
+      '.ecp_storageOrphans{margin-top:6px;border-top:.5px dashed var(--dsw-alias-border-l2);padding-top:6px}',
+      '.ecp_storageOrphanText{color:var(--dsw-alias-label-secondary)}',
+      '.ecp_storageHint{color:var(--dsw-alias-label-tertiary);margin:2px 0 4px}',
       '.ecp_status{font-family:var(--ds-font-family);font-size:10px;color:var(--dsw-alias-label-tertiary);margin-left:6px}',
       '.ecp_emptyHead{display:flex;align-items:center;gap:8px;padding:10px 12px;color:var(--dsw-alias-label-secondary)}',
       '.ecp_emptyTitle{font-size:12px;font-weight:500;color:var(--dsw-alias-label-primary)}',
@@ -487,6 +505,22 @@ window.__ModuleLoader__.load({
 
     function format(t, key, value) {
       return String(t(key)).replace('{n}', String(value))
+    }
+
+    /**
+     * Fill several named placeholders in one string. `format` only handles a
+     * single `{n}`; the storage lines need numbers and a size at once.
+     * @param {(key: string) => string} t
+     * @param {string} key
+     * @param {Record<string, string|number>} values
+     */
+    function fill(t, key, values) {
+      var text = String(t(key))
+      var names = Object.keys(values)
+      for (var index = 0; index < names.length; index += 1) {
+        text = text.split('{' + names[index] + '}').join(String(values[names[index]]))
+      }
+      return text
     }
 
     function formatSize(bytes) {
@@ -594,6 +628,9 @@ window.__ModuleLoader__.load({
       var confirmCleanState = useState(false)
       var confirmClean = confirmCleanState[0]
       var setConfirmClean = confirmCleanState[1]
+      var confirmPurgeState = useState(false)
+      var confirmPurge = confirmPurgeState[0]
+      var setConfirmPurge = confirmPurgeState[1]
       var pinBusyState = useState(false)
       var pinBusy = pinBusyState[0]
       var setPinBusy = pinBusyState[1]
@@ -674,6 +711,12 @@ window.__ModuleLoader__.load({
         var timer = setTimeout(function () { setConfirmClean(false) }, 4000)
         return function () { clearTimeout(timer) }
       }, [confirmClean])
+
+      useEffect(function () {
+        if (!confirmPurge) return undefined
+        var timer = setTimeout(function () { setConfirmPurge(false) }, 4000)
+        return function () { clearTimeout(timer) }
+      }, [confirmPurge])
 
       useEffect(function () {
         if (!filterMenuOpen) return undefined
@@ -1188,6 +1231,27 @@ window.__ModuleLoader__.load({
         }).finally(function () { setBusy('') })
       }
 
+      var runPurge = function () {
+        if (confirmPurge !== true) {
+          setConfirmPurge(true)
+          return
+        }
+        setConfirmPurge(false)
+        setBusy('purge')
+        setError('')
+        api.purgeOrphans(sessionId).then(function (result) {
+          if (!result || result.ok !== true) {
+            setError(result && result.message ? result.message : t('actionFailed'))
+            return
+          }
+          if ((result.records || 0) === 0) setError(t('purgeNothing'))
+          else setError(fill(t, 'purgeDone', { records: result.records || 0, size: formatSize(result.bytes || 0) }))
+          loadStats()
+        }).catch(function (failure) {
+          setError(failure && failure.message ? failure.message : t('actionFailed'))
+        }).finally(function () { setBusy('') })
+      }
+
       var runReview = function () {
         review(0)
       }
@@ -1343,6 +1407,24 @@ window.__ModuleLoader__.load({
                 onClick: runClean,
               }, confirmClean ? t('confirmClean') : t('clean')),
             ]),
+            stats.failure ? createElement('div', { key: 'failure', className: 'ecp_storageWarn' },
+              fill(t, 'storageFailure', { message: stats.failure.message })) : null,
+            stats.orphans && (stats.orphans.sessions || 0) > 0 ? createElement('div', { key: 'orphans', className: 'ecp_storageOrphans' }, [
+              createElement('div', { key: 'line', className: 'ecp_storageOrphanText' },
+                fill(t, 'storageOrphans', {
+                  sessions: stats.orphans.sessions || 0,
+                  records: stats.orphans.records || 0,
+                  size: formatSize(stats.orphans.bytes || 0),
+                })),
+              createElement('div', { key: 'hint', className: 'ecp_storageHint' }, t('storageOrphanHint')),
+              createElement('button', {
+                key: 'purge',
+                type: 'button',
+                className: 'ecp_btn' + (confirmPurge ? ' is-confirm' : ''),
+                disabled: busy !== '',
+                onClick: runPurge,
+              }, confirmPurge ? t('confirmPurge') : t('purgeOrphans')),
+            ]) : null,
           ])
         }
         storagePanel = createElement('div', { key: 'storage', className: 'ecp_storage', 'data-checkpoint-storage': '' }, storageBody)
@@ -1862,6 +1944,7 @@ window.__ModuleLoader__.load({
         stats: function (sessionId) { return call('get', sessionId, -999999) },
         pin: function (sessionId, turn) { return call('keep', sessionId, -turn) },
         clean: function (sessionId) { return call('undo', sessionId, -999999) },
+        purgeOrphans: function (sessionId) { return call('undo', sessionId, -999998) },
       }
 
       var openReview = function (coordinates, index) {
