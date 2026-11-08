@@ -1,6 +1,6 @@
 {
   "name": "dsh-checkpoint-dock",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A resident checkpoint dock for DSH: keep, undo, redo, revert, diff, pin, and clean the files an agent changed in each turn.",
   "keywords": [
     "dsh",
