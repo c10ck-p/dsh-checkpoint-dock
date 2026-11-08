@@ -464,8 +464,9 @@ window.__ModuleLoader__.load({
       '.ecp_legendPct{font-family:var(--ds-font-family-code);color:var(--dsw-alias-label-tertiary);flex:0 0 auto;width:44px;text-align:right}',
       '.ecp_storageToggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:11px !important}',
       '.ecp_storageCheck{margin:0;accent-color:var(--dsw-alias-state-accent-primary,#5b8def);cursor:pointer}',
-      '.ecp_storageSelect{font:inherit;font-size:11px !important;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:.5px solid var(--dsw-alias-border-l2);border-radius:4px;padding:1px 4px;cursor:pointer}',
-      '.ecp_storageSelect option{background:var(--dsw-alias-bg-layer-2,#242424);color:var(--dsw-alias-label-primary,#ececec)}',
+      '.ecp_storagePicker{position:relative;min-width:96px}',
+      '.ecp_storagePicker .ecp_sessionButton{width:100%}',
+      '.ecp_storagePicker .ecp_sessionMenu{min-width:96px}',
       '.ecp_status{font-family:var(--ds-font-family);font-size:10px;color:var(--dsw-alias-label-tertiary);margin-left:6px}',
       '.ecp_emptyHead{display:flex;align-items:center;gap:8px;padding:10px 12px;color:var(--dsw-alias-label-secondary)}',
       '.ecp_emptyTitle{font-size:12px;font-weight:500;color:var(--dsw-alias-label-primary)}',
@@ -1533,6 +1534,10 @@ window.__ModuleLoader__.load({
       var purgeConfirmState = useState(false)
       var purgeConfirm = purgeConfirmState[0]
       var setPurgeConfirm = purgeConfirmState[1]
+      var keepOpenState = useState(false)
+      var keepOpen = keepOpenState[0]
+      var setKeepOpen = keepOpenState[1]
+      var keepPickerRef = useRef(null)
 
       useEffect(function () {
         if (!sessionMenuOpen) return undefined
@@ -1549,6 +1554,22 @@ window.__ModuleLoader__.load({
           document.removeEventListener('keydown', closeOnEscape)
         }
       }, [sessionMenuOpen])
+
+      useEffect(function () {
+        if (!keepOpen) return undefined
+        var closeOnOutside = function (event) {
+          if (keepPickerRef.current && !keepPickerRef.current.contains(event.target)) setKeepOpen(false)
+        }
+        var closeOnEscape = function (event) {
+          if (event.key === 'Escape') setKeepOpen(false)
+        }
+        document.addEventListener('pointerdown', closeOnOutside)
+        document.addEventListener('keydown', closeOnEscape)
+        return function () {
+          document.removeEventListener('pointerdown', closeOnOutside)
+          document.removeEventListener('keydown', closeOnEscape)
+        }
+      }, [keepOpen])
 
       useEffect(function () {
         return subscribeSettings(function (next) { setSettings(next) })
@@ -2021,18 +2042,42 @@ window.__ModuleLoader__.load({
               }),
               createElement('span', { key: 'text' }, t('storageAutoClean')),
             ]),
-            createElement('label', { key: 'keep', className: 'ecp_storageToggle' }, [
+            createElement('div', { key: 'keep', className: 'ecp_storageToggle' }, [
               createElement('span', { key: 'text' }, t('storageKeep')),
-              createElement('select', {
-                key: 'select',
-                className: 'ecp_storageSelect',
-                value: String(stats.keepRecent || 30),
-                disabled: storageBusy !== '',
-                onChange: function (event) { saveConfig({ keep: Number(event.target.value) }) },
-              }, [10, 20, 30, 50, 100, 200].map(function (option) {
-                return createElement('option', { key: option, value: String(option) },
-                  format(t, 'storageKeepOption', option))
-              })),
+              createElement('div', { key: 'picker', className: 'ecp_storagePicker', ref: keepPickerRef }, [
+                createElement('button', {
+                  key: 'button',
+                  type: 'button',
+                  className: 'ecp_sessionButton' + (keepOpen ? ' is-open' : ''),
+                  'aria-haspopup': 'listbox',
+                  'aria-expanded': keepOpen,
+                  disabled: storageBusy !== '',
+                  onClick: function () { setKeepOpen(!keepOpen) },
+                }, [
+                  createElement('span', { key: 'text', className: 'ecp_sessionButtonText' },
+                    format(t, 'storageKeepOption', stats.keepRecent || 30)),
+                  createElement('span', { key: 'chevron', className: 'ecp_sessionChevron' }, keepOpen ? '▴' : '▾'),
+                ]),
+                keepOpen ? createElement('div', { key: 'menu', className: 'ecp_sessionMenu', role: 'listbox' },
+                  [10, 20, 30, 50, 100, 200].map(function (option) {
+                    var active = (stats.keepRecent || 30) === option
+                    return createElement('button', {
+                      key: option,
+                      type: 'button',
+                      role: 'option',
+                      'aria-selected': active,
+                      className: 'ecp_sessionOption' + (active ? ' is-active' : ''),
+                      onClick: function () {
+                        setKeepOpen(false)
+                        saveConfig({ keep: option })
+                      },
+                    }, [
+                      createElement('span', { key: 'text', className: 'ecp_sessionOptionText' },
+                        format(t, 'storageKeepOption', option)),
+                      active ? createElement('span', { key: 'check', className: 'ecp_sessionCheck' }, '✓') : null,
+                    ])
+                  })) : null,
+              ]),
             ]),
           ]),
           createElement('div', { key: 'policy', className: 'ecp_settingsHint' }, format(t, 'storagePolicy', stats.keepRecent || 30)),
