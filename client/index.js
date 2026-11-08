@@ -348,9 +348,11 @@ window.__ModuleLoader__.load({
     var STYLES = [
       '.ecp_dock{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));max-width:calc(var(--dsh-composer-card-max-width,920px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));margin:0 auto 2px;padding:0 var(--dsh-composer-dock-inset,8px);flex:none;display:flex;min-width:0}',
       '.ecp_panel{box-sizing:border-box;width:100%;min-width:0;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-1));box-shadow:var(--dsw-elevation-panel);backdrop-filter:var(--dsw-menu-backdrop-filter);color:var(--dsw-alias-label-primary);display:flex;flex-direction:column;overflow:hidden}',
-      '.ecp_panel[data-menu-open=true]{overflow:visible}',
       '.ecp_head{box-sizing:border-box;width:100%;height:32px;color:inherit;background:0 0;border:0;font:inherit;text-align:left;cursor:pointer;align-items:center;gap:8px;padding:0 12px;display:flex}',
       '.ecp_filterRow{display:flex;align-items:center;gap:6px;padding:2px 12px 5px;border-bottom:.5px solid var(--dsw-alias-border-l1)}',
+      '.ecp_filterBox{display:flex;flex-direction:column}',
+      '.ecp_filterMenuInline{display:flex;flex-direction:column;padding:4px 10px 6px;background:var(--dsw-alias-bg-layer-2);border-bottom:.5px solid var(--dsw-alias-border-l1)}',
+      '.ecp_filterMenuInline .ecp_sessionOption{padding:5px 7px}',
       '.ecp_filterLabel{color:var(--dsw-alias-label-tertiary);font-size:11px}',
       '.ecp_filterPicker{flex:0 0 auto;min-width:105px;max-width:150px}',
       '.ecp_empty{padding:10px 12px;color:var(--dsw-alias-label-tertiary);font-size:11px}',
@@ -443,7 +445,6 @@ window.__ModuleLoader__.load({
       '.ecp_sessionButtonText{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.ecp_sessionChevron{flex:none;font-size:9px;color:var(--dsw-alias-label-tertiary)}',
       '.ecp_sessionMenu{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:60;box-sizing:border-box;max-height:260px;overflow:auto;padding:4px;background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.3)}',
-      '.ecp_sessionMenu.ecp_filterMenu{right:auto;min-width:120px}',
       '.ecp_sessionOption{box-sizing:border-box;width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 8px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;text-align:left;cursor:pointer}',
       '.ecp_sessionOption:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
       '.ecp_sessionOption.is-active{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
@@ -1304,7 +1305,6 @@ window.__ModuleLoader__.load({
       }, createElement('div', {
         className: 'ecp_panel',
         'data-collapsed': collapsed ? 'true' : 'false',
-        'data-menu-open': filterMenuOpen ? 'true' : 'false',
       }, [
         createElement('button', {
           key: 'head',
@@ -1319,36 +1319,38 @@ window.__ModuleLoader__.load({
             format(t, 'count', filteredRecords.length)),
           createElement('span', { key: 'chev', className: 'ecp_chev' }, chevron()),
         ]),
-        collapsed ? null : createElement('div', { key: 'filterRow', className: 'ecp_filterRow' }, [
-          createElement('span', { key: 'label', className: 'ecp_filterLabel' }, t('filter')),
-          createElement('div', { key: 'picker', className: 'ecp_sessionPicker ecp_filterPicker', ref: filterPickerRef }, [
-            createElement('button', {
-              key: 'button',
-              type: 'button',
-              className: 'ecp_sessionButton' + (filterMenuOpen ? ' is-open' : ''),
-              'aria-haspopup': 'listbox',
-              'aria-expanded': filterMenuOpen,
-              onClick: function () { setFilterMenuOpen(!filterMenuOpen) },
-            }, [
-              createElement('span', { key: 'text', className: 'ecp_sessionButtonText' }, filterLabel),
-              createElement('span', { key: 'chevron', className: 'ecp_sessionChevron' }, filterMenuOpen ? '▴' : '▾'),
+        collapsed ? null : createElement('div', { key: 'filterBox', className: 'ecp_filterBox', ref: filterPickerRef }, [
+          createElement('div', { key: 'filterRow', className: 'ecp_filterRow' }, [
+            createElement('span', { key: 'label', className: 'ecp_filterLabel' }, t('filter')),
+            createElement('div', { key: 'picker', className: 'ecp_sessionPicker ecp_filterPicker' }, [
+              createElement('button', {
+                key: 'button',
+                type: 'button',
+                className: 'ecp_sessionButton' + (filterMenuOpen ? ' is-open' : ''),
+                'aria-haspopup': 'listbox',
+                'aria-expanded': filterMenuOpen,
+                onClick: function () { setFilterMenuOpen(!filterMenuOpen) },
+              }, [
+                createElement('span', { key: 'text', className: 'ecp_sessionButtonText' }, filterLabel),
+                createElement('span', { key: 'chevron', className: 'ecp_sessionChevron' }, filterMenuOpen ? '▴' : '▾'),
+              ]),
             ]),
-            filterMenuOpen ? createElement('div', { key: 'menu', className: 'ecp_sessionMenu ecp_filterMenu', role: 'listbox' },
-              filterOptions.map(function (option) {
-                var active = filter === option.value
-                return createElement('button', {
-                  key: option.value,
-                  type: 'button',
-                  role: 'option',
-                  'aria-selected': active,
-                  className: 'ecp_sessionOption' + (active ? ' is-active' : ''),
-                  onClick: function () { chooseFilter(option.value) },
-                }, [
-                  createElement('span', { key: 'text', className: 'ecp_sessionOptionText' }, option.label),
-                  active ? createElement('span', { key: 'check', className: 'ecp_sessionCheck' }, '✓') : null,
-                ])
-              })) : null,
           ]),
+          filterMenuOpen ? createElement('div', { key: 'filterMenu', className: 'ecp_filterMenuInline', role: 'listbox' },
+            [].concat(filterOptions.map(function (option) {
+              var active = filter === option.value
+              return createElement('button', {
+                key: option.value,
+                type: 'button',
+                role: 'option',
+                'aria-selected': active,
+                className: 'ecp_sessionOption' + (active ? ' is-active' : ''),
+                onClick: function () { chooseFilter(option.value) },
+              }, [
+                createElement('span', { key: 'text', className: 'ecp_sessionOptionText' }, option.label),
+                active ? createElement('span', { key: 'check', className: 'ecp_sessionCheck' }, '✓') : null,
+              ])
+            }))) : null,
         ]),
         collapsed ? null : (ordered.length === 0
           ? createElement('div', { key: 'cpsEmpty', className: 'ecp_empty' }, t('filterEmpty'))
