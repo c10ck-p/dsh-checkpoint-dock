@@ -1,0 +1,4 @@
+# Mount the resident checkpoint dock above the composer.
+- insert:
+    - id: checkpoint-dock
+      name: dsh-checkpoint-dock

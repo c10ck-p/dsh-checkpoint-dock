@@ -1,0 +1,59 @@
+{
+  "name": "dsh-checkpoint-dock",
+  "version": "0.1.0",
+  "description": "A resident checkpoint dock for DSH: keep, undo, redo, revert, diff, pin, and clean the files an agent changed in each turn.",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "checkpoint",
+    "snapshot",
+    "undo",
+    "diff",
+    "plugin"
+  ],
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./typert": "./typert.host.mjs",
+    "./client": "./client/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "typert.host.mjs",
+    "lib",
+    "client",
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-typert-protocol": "*"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.0"
+  },
+  "scripts": {
+    "check": "node --check index.mjs && node --check typert.host.mjs && node --check lib/store.mjs && node --check lib/service.mjs && node --check lib/wire.mjs && node --check client/index.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT"
+}
