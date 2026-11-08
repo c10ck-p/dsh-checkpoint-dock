@@ -68,6 +68,17 @@ dsh plugin --profile desktop add D:\path\to\dsh-checkpoint-dock
 - 只捕获 DSH 文件工具发起的写入；Shell、构建脚本、git 和外部编辑器直接写文件不会进入检查点。
 - 单文件上限为 4 MiB；超过上限的文件只记录近似行数，不参与安全撤销。
 
+## 发布
+
+发布使用 GitHub Release 触发，不再在 `push main` 时自动改版本（避免版本提交循环）。
+
+1. 修改 `package.json` 的 `version`，提交到 `main`。
+2. 创建并推送 tag，例如 `v0.1.0`。
+3. 在 GitHub 创建 Release，选择该 tag 并发布。
+4. `.github/workflows/npm-publish.yml` 会校验 tag 与 `package.json` 版本一致，执行语法检查，然后用仓库 secret `NPM_TOKEN` 发布到 npm。
+
+`NPM_TOKEN` 需要 npm Automation token（或具备 publish 权限的 granular token），并在仓库 Settings → Secrets and variables → Actions 中配置。
+
 ## 已知限制
 
 - 只处理 `session.header.cwd` 内的文件；工作区外与临时文件不进入检查点。

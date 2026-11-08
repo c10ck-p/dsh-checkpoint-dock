@@ -1,41 +1,49 @@
-name: Node.js Package
+name: Publish to npm
 
 on:
   release:
-    types: [created] # 仅当创建 Release 时触发
-  push:
-    branches:
-      - main         #仅当 push 到 main 分支时触发
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
-          registry-url: 'https://registry.npmjs.org'
-      - name: Set up Git user
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify release tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          git config --global user.name "c10ck-p"
-          git config --global user.email "mc2796357789@outlook.com"
-      - name: Bump version (optional)
-        run: npm version patch # 自动更新版本号
-      - name: Commit changes (if needed)
-        run: |
-          git add .
-          git commit -m "Bump version" || echo "No changes to commit"
-          git push origin main
-      - name: npm install
-        run: npm install
-      - name: Rollup build
-        run: npm run build
-     
+          node -e "
+            const tag = String(process.env.RELEASE_TAG || '').replace(/^v/, '');
+            const version = require('./package.json').version;
+            if (tag !== version) {
+              console.error('Release tag ' + process.env.RELEASE_TAG + ' does not match package.json version ' + version);
+              process.exit(1);
+            }
+            console.log('Publishing ' + version);
+          "
+
+      - name: Syntax check
+        run: npm run check
+
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
