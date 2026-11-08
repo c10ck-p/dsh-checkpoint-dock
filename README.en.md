@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="DSH >= 0.2.0" src="docs/badge-dsh.svg">
+  <img alt="DSH >= 0.2.2-rc.1" src="docs/badge-dsh.svg">
   <a href="LICENSE"><img alt="MIT License" src="docs/badge-license.svg"></a>
 </p>
 
@@ -44,7 +44,7 @@ Snapshot-style tools are a better fit when you need workspace, config, or sessio
 
 ## Install
 
-Requires DSH `>= 0.2.0`.
+Requires DSH `>= 0.2.2-rc.1`.
 
 From npm:
 

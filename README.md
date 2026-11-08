@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="DSH >= 0.2.0" src="docs/badge-dsh.svg">
+  <img alt="DSH >= 0.2.2-rc.1" src="docs/badge-dsh.svg">
   <a href="LICENSE"><img alt="MIT License" src="docs/badge-license.svg"></a>
 </p>
 
@@ -44,7 +44,7 @@ DSH 自带的“已编辑 N 个文件”卡片负责告诉你这一轮产出了�
 
 ## 安装
 
-要求 DSH `>= 0.2.0`。
+要求 DSH `>= 0.2.2-rc.1`。
 
 从 npm：
 
