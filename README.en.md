@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/dsh-checkpoint-dock"><img alt="npm 0.1.0" src="docs/badge-npm.svg"></a>
   <img alt="DSH >= 0.2.2-rc.1" src="docs/badge-dsh.svg">
   <a href="LICENSE"><img alt="MIT License" src="docs/badge-license.svg"></a>
 </p>
@@ -44,7 +45,7 @@ Snapshot-style tools are a better fit when you need workspace, config, or sessio
 
 ## Install
 
-Requires DSH `>= 0.2.2-rc.1`.
+Requires DSH `>= 0.2.2-rc.1`. Published on npm: [dsh-checkpoint-dock](https://www.npmjs.com/package/dsh-checkpoint-dock).
 
 From npm:
 
@@ -58,7 +59,17 @@ From a local directory:
 dsh plugin --profile desktop add D:\path\to\dsh-checkpoint-dock
 ```
 
-You can also pick the local bundle from the Plugins page. Refresh the page after installing or upgrading; restart DSH once if it asks you to.
+You can also pick the local bundle from the Plugins page. Refresh the page afterwards and the dock shows up.
+
+The plugin ships two halves: Host code (`index.mjs`, `lib/`) and client code (`client/index.js`). **Restart DSH once after the first install or an upgrade** so the Host half picks up the new code; a page refresh only reloads the client half. If the dock disappears right after an upgrade, the Host plugin probably failed to import — check `$DSH_HOME/unlag-reload.log` (when dsh-unlag is installed) or the `checkpoint-dock` errors in the DSH log.
+
+Uninstall:
+
+```powershell
+dsh plugin --profile desktop remove dsh-checkpoint-dock
+```
+
+Uninstalling leaves existing checkpoints in place; the data stays in `$DSH_HOME/edit-checkpoints/` until you delete it yourself.
 
 ## Usage
 

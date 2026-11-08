@@ -28,3 +28,8 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      # The npm badge is a static SVG (shields.io is unreachable from mainland
+      # China), so keep it in sync with package.json or the readme lies.
+      - name: Check npm badge version
+        run: node -e "const fs=require('fs');const v=require('./package.json').version;const svg=fs.readFileSync('docs/badge-npm.svg','utf8');if(!svg.includes('>'+v+'<')){console.error('docs/badge-npm.svg does not show '+v);process.exit(1);}console.log('badge shows npm '+v);"

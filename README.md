@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/dsh-checkpoint-dock"><img alt="npm 0.1.0" src="docs/badge-npm.svg"></a>
   <img alt="DSH >= 0.2.2-rc.1" src="docs/badge-dsh.svg">
   <a href="LICENSE"><img alt="MIT License" src="docs/badge-license.svg"></a>
 </p>
@@ -44,7 +45,7 @@ DSH 自带的“已编辑 N 个文件”卡片负责告诉你这一轮产出了�
 
 ## 安装
 
-要求 DSH `>= 0.2.2-rc.1`。
+要求 DSH `>= 0.2.2-rc.1`。包已发布在 npm：[dsh-checkpoint-dock](https://www.npmjs.com/package/dsh-checkpoint-dock)。
 
 从 npm：
 
@@ -58,7 +59,17 @@ dsh plugin --profile desktop add dsh-checkpoint-dock
 dsh plugin --profile desktop add D:\path\to\dsh-checkpoint-dock
 ```
 
-也可以在插件页选择本地 bundle。安装或升级后刷新页面；如果提示需要重启 DSH，重启一次即可。
+也可以在插件页选择本地 bundle。装完刷新页面就能看到 dock。
+
+插件由 Host 侧代码（`index.mjs`、`lib/`）和客户端代码（`client/index.js`）两半组成：**首次安装或升级后重启一次 DSH**，Host 侧才会加载新代码；只刷新页面只更新客户端那一半。升级后如果 dock 突然不见，多半是 Host 插件 import 失败，可以看 `$DSH_HOME/unlag-reload.log`（装了 dsh-unlag 的话）或 DSH 日志里 `checkpoint-dock` 的报错。
+
+卸载：
+
+```powershell
+dsh plugin --profile desktop remove dsh-checkpoint-dock
+```
+
+卸载不会删除已有检查点，数据仍在 `$DSH_HOME/edit-checkpoints/`，需要的话手动删目录。
 
 ## 使用
 
