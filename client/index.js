@@ -226,6 +226,7 @@ window.__ModuleLoader__.load({
         pinRemoved: '内容已清理，无法钉住',
         storage: '存储',
         storageTitle: '检查点存储',
+        storageHint: '检查点按会话保存在本机；这里统计整个存储的占用，并管理自动清理。',
         storageSummary: '{n} 条记录 · {size} · 可清理 {cleanable}',
         storagePinned: '{n} 条已钉住，不参与清理',
         storagePolicy: '只清理最早的记录内容，保留最近 {n} 条和所有钉住项；清理后记录仍在，但不能再查看/撤销/重做。',
@@ -335,6 +336,7 @@ window.__ModuleLoader__.load({
         pinRemoved: 'Content was cleaned; cannot pin',
         storage: 'Storage',
         storageTitle: 'Checkpoint storage',
+        storageHint: 'Checkpoints are stored per session. This page reports the whole store and hosts the automatic-cleanup switch.',
         storageSummary: '{n} records · {size} · {cleanable} cleanable',
         storagePinned: '{n} pinned records are never cleaned',
         storagePolicy: 'Only the oldest content is cleaned; the latest {n} and all pinned content stay. Records remain, but their diff/undo/redo stop working.',
@@ -629,18 +631,6 @@ window.__ModuleLoader__.load({
       var diffLoadingState = useState(false)
       var diffLoading = diffLoadingState[0]
       var setDiffLoading = diffLoadingState[1]
-      var showStorageState = useState(false)
-      var showStorage = showStorageState[0]
-      var setShowStorage = showStorageState[1]
-      var statsState = useState(null)
-      var stats = statsState[0]
-      var setStats = statsState[1]
-      var confirmCleanState = useState(false)
-      var confirmClean = confirmCleanState[0]
-      var setConfirmClean = confirmCleanState[1]
-      var confirmPurgeState = useState(false)
-      var confirmPurge = confirmPurgeState[0]
-      var setConfirmPurge = confirmPurgeState[1]
       var pinBusyState = useState(false)
       var pinBusy = pinBusyState[0]
       var setPinBusy = pinBusyState[1]
@@ -681,15 +671,6 @@ window.__ModuleLoader__.load({
         })
       }, [sessionId, api])
 
-      var loadStats = useCallback(function () {
-        if (!sessionId || !api) return
-        api.stats(sessionId).then(function (result) {
-          setStats(result)
-        }).catch(function (failure) {
-          setError(failure && failure.message ? failure.message : t('actionFailed'))
-        })
-      }, [sessionId, api])
-
       useEffect(function () {
         refresh()
       }, [refresh])
@@ -718,10 +699,6 @@ window.__ModuleLoader__.load({
       }, [selectedTurn])
 
       useEffect(function () {
-        if (showStorage) loadStats()
-      }, [showStorage, loadStats])
-
-      useEffect(function () {
         if (confirmTurn === null) return undefined
         var timer = setTimeout(function () { setConfirmTurn(null) }, 4000)
         return function () { clearTimeout(timer) }
@@ -732,18 +709,6 @@ window.__ModuleLoader__.load({
         var timer = setTimeout(function () { setConfirmRevert(false) }, 4000)
         return function () { clearTimeout(timer) }
       }, [confirmRevert])
-
-      useEffect(function () {
-        if (!confirmClean) return undefined
-        var timer = setTimeout(function () { setConfirmClean(false) }, 4000)
-        return function () { clearTimeout(timer) }
-      }, [confirmClean])
-
-      useEffect(function () {
-        if (!confirmPurge) return undefined
-        var timer = setTimeout(function () { setConfirmPurge(false) }, 4000)
-        return function () { clearTimeout(timer) }
-      }, [confirmPurge])
 
       useEffect(function () {
         if (!filterMenuOpen) return undefined
@@ -1230,75 +1195,11 @@ window.__ModuleLoader__.load({
             return
           }
           refresh()
-          if (showStorage) loadStats()
         }).catch(function (failure) {
           setError(failure && failure.message ? failure.message : t('actionFailed'))
         }).finally(function () {
           setPinBusy(false)
         })
-      }
-
-      var runClean = function () {
-        if (confirmClean !== true) {
-          setConfirmClean(true)
-          return
-        }
-        setConfirmClean(false)
-        setBusy('clean')
-        setError('')
-        api.clean(sessionId).then(function (result) {
-          if (!result || result.ok !== true) {
-            setError(result && result.message ? result.message : t('actionFailed'))
-            return
-          }
-          loadStats()
-          refresh()
-        }).catch(function (failure) {
-          setError(failure && failure.message ? failure.message : t('actionFailed'))
-        }).finally(function () { setBusy('') })
-      }
-
-      var runPurge = function () {
-        if (confirmPurge !== true) {
-          setConfirmPurge(true)
-          return
-        }
-        setConfirmPurge(false)
-        setBusy('purge')
-        setError('')
-        api.purgeOrphans(sessionId).then(function (result) {
-          if (!result || result.ok !== true) {
-            setError(result && result.message ? result.message : t('actionFailed'))
-            return
-          }
-          if ((result.records || 0) === 0) setError(t('purgeNothing'))
-          else setError(fill(t, 'purgeDone', { records: result.records || 0, size: formatSize(result.bytes || 0) }))
-          loadStats()
-        }).catch(function (failure) {
-          setError(failure && failure.message ? failure.message : t('actionFailed'))
-        }).finally(function () { setBusy('') })
-      }
-
-      var saveConfig = function (patch) {
-        setBusy('config')
-        setError('')
-        api.setConfig(patch).then(function (result) {
-          if (!result || result.ok !== true) {
-            setError(result && result.message ? result.message : t('actionFailed'))
-            return
-          }
-          setStats(function (current) {
-            if (current === null) return current
-            var next = {}
-            for (var key in current) next[key] = current[key]
-            next.autoClean = result.autoClean === true
-            next.keepRecent = result.keep
-            return next
-          })
-          loadStats()
-        }).catch(function (failure) {
-          setError(failure && failure.message ? failure.message : t('actionFailed'))
-        }).finally(function () { setBusy('') })
       }
 
       var runReview = function () {
@@ -1430,80 +1331,6 @@ window.__ModuleLoader__.load({
         diffPanel = createElement('div', { key: 'diff', className: 'ecp_diff', 'data-checkpoint-diff': '' }, diffChildren)
       }
 
-      var storagePanel = null
-      if (showStorage) {
-        var storageBody
-        if (stats === null) {
-          storageBody = createElement('div', null, t('diffLoading'))
-        } else {
-          var summary = String(t('storageSummary'))
-            .replace('{n}', String(stats.records || 0))
-            .replace('{size}', formatSize(stats.bytes))
-            .replace('{cleanable}', String(stats.cleanable || 0))
-          storageBody = createElement('div', null, [
-            createElement('div', { key: 'title', className: 'ecp_storageTitle' }, t('storageTitle')),
-            createElement('div', { key: 'sum' }, summary),
-            createElement('div', { key: 'pinned' }, format(t, 'storagePinned', stats.pinned || 0)),
-            createElement('div', { key: 'policy' }, format(t, 'storagePolicy', stats.keepRecent || 30)),
-            createElement('div', { key: 'auto', className: 'ecp_storageSetting' }, [
-              createElement('label', { key: 'toggle', className: 'ecp_storageToggle' }, [
-                createElement('input', {
-                  key: 'box',
-                  type: 'checkbox',
-                  className: 'ecp_storageCheck',
-                  checked: stats.autoClean === true,
-                  disabled: busy !== '',
-                  onChange: function (event) { saveConfig({ autoClean: event.target.checked === true }) },
-                }),
-                createElement('span', { key: 'text' }, t('storageAutoClean')),
-              ]),
-              createElement('label', { key: 'keep', className: 'ecp_storageToggle' }, [
-                createElement('span', { key: 'text' }, t('storageKeep')),
-                createElement('select', {
-                  key: 'select',
-                  className: 'ecp_storageSelect',
-                  value: String(stats.keepRecent || 30),
-                  disabled: busy !== '',
-                  onChange: function (event) { saveConfig({ keep: Number(event.target.value) }) },
-                }, [10, 20, 30, 50, 100, 200].map(function (option) {
-                  return createElement('option', { key: option, value: String(option) },
-                    format(t, 'storageKeepOption', option))
-                })),
-              ]),
-            ]),
-            createElement('div', { key: 'row', className: 'ecp_storageRow' }, [
-              createElement('span', { key: 'cleanable' },
-                String(stats.cleanableBytes ? formatSize(stats.cleanableBytes) : '0 B')),
-              createElement('button', {
-                key: 'clean',
-                type: 'button',
-                className: 'ecp_btn' + (confirmClean ? ' is-confirm' : ''),
-                disabled: busy !== '' || (stats.cleanable || 0) === 0,
-                onClick: runClean,
-              }, confirmClean ? t('confirmClean') : t('clean')),
-            ]),
-            stats.failure ? createElement('div', { key: 'failure', className: 'ecp_storageWarn' },
-              fill(t, 'storageFailure', { message: stats.failure.message })) : null,
-            stats.orphans && (stats.orphans.sessions || 0) > 0 ? createElement('div', { key: 'orphans', className: 'ecp_storageOrphans' }, [
-              createElement('div', { key: 'line', className: 'ecp_storageOrphanText' },
-                fill(t, 'storageOrphans', {
-                  sessions: stats.orphans.sessions || 0,
-                  records: stats.orphans.records || 0,
-                  size: formatSize(stats.orphans.bytes || 0),
-                })),
-              createElement('div', { key: 'hint', className: 'ecp_storageHint' }, t('storageOrphanHint')),
-              createElement('button', {
-                key: 'purge',
-                type: 'button',
-                className: 'ecp_btn' + (confirmPurge ? ' is-confirm' : ''),
-                disabled: busy !== '',
-                onClick: runPurge,
-              }, confirmPurge ? t('confirmPurge') : t('purgeOrphans')),
-            ]) : null,
-          ])
-        }
-        storagePanel = createElement('div', { key: 'storage', className: 'ecp_storage', 'data-checkpoint-storage': '' }, storageBody)
-      }
 
       return createElement('section', {
         className: 'ecp_dock',
@@ -1625,15 +1452,8 @@ window.__ModuleLoader__.load({
               disabled: busy !== '' || !diffAvailable,
               onClick: toggleDiff,
             }, showDiff ? t('hideDiff') : t('diff')),
-            createElement('button', {
-              key: 'storage',
-              type: 'button',
-              className: 'ecp_btn',
-              onClick: function () { setShowStorage(!showStorage) },
-            }, t('storage')),
           ]),
         ]),
-        collapsed ? null : storagePanel,
         error === '' ? null : createElement('div', { key: 'error', className: 'ecp_error' }, error),
       ]))
     }
@@ -1672,6 +1492,18 @@ window.__ModuleLoader__.load({
       var sessionMenuOpen = sessionMenuState[0]
       var setSessionMenuOpen = sessionMenuState[1]
       var sessionPickerRef = useRef(null)
+      var statsState = useState(null)
+      var stats = statsState[0]
+      var setStats = statsState[1]
+      var storageBusyState = useState('')
+      var storageBusy = storageBusyState[0]
+      var setStorageBusy = storageBusyState[1]
+      var cleanConfirmState = useState(false)
+      var cleanConfirm = cleanConfirmState[0]
+      var setCleanConfirm = cleanConfirmState[1]
+      var purgeConfirmState = useState(false)
+      var purgeConfirm = purgeConfirmState[0]
+      var setPurgeConfirm = purgeConfirmState[1]
 
       useEffect(function () {
         if (!sessionMenuOpen) return undefined
@@ -1729,6 +1561,101 @@ window.__ModuleLoader__.load({
             },
           }),
         ])
+      }
+
+      var loadStats = useCallback(function () {
+        if (!api) {
+          setStats(null)
+          return
+        }
+        api.statsAll().then(function (result) {
+          setStats(result)
+        }).catch(function (failure) {
+          setError(failure && failure.message ? failure.message : t('actionFailed'))
+        })
+      }, [api])
+
+      // The storage page is the only consumer, so it loads when the tab opens
+      // and after every mutation; the dock no longer polls it.
+      useEffect(function () {
+        if (tab === 'storage') loadStats()
+      }, [tab, loadStats])
+
+      useEffect(function () {
+        if (!cleanConfirm) return undefined
+        var timer = setTimeout(function () { setCleanConfirm(false) }, 4000)
+        return function () { clearTimeout(timer) }
+      }, [cleanConfirm])
+
+      useEffect(function () {
+        if (!purgeConfirm) return undefined
+        var timer = setTimeout(function () { setPurgeConfirm(false) }, 4000)
+        return function () { clearTimeout(timer) }
+      }, [purgeConfirm])
+
+      var runClean = function () {
+        if (cleanConfirm !== true) {
+          setCleanConfirm(true)
+          return
+        }
+        setCleanConfirm(false)
+        setStorageBusy('clean')
+        setError('')
+        api.cleanAll().then(function (result) {
+          if (!result || result.ok !== true) {
+            setError(result && result.message ? result.message : t('actionFailed'))
+            return
+          }
+          if ((result.records || 0) === 0) setError(t('cleanNothing'))
+          loadStats()
+          loadHistory()
+        }).catch(function (failure) {
+          setError(failure && failure.message ? failure.message : t('actionFailed'))
+        }).finally(function () { setStorageBusy('') })
+      }
+
+      var runPurge = function () {
+        if (purgeConfirm !== true) {
+          setPurgeConfirm(true)
+          return
+        }
+        setPurgeConfirm(false)
+        setStorageBusy('purge')
+        setError('')
+        api.purgeOrphans('*').then(function (result) {
+          if (!result || result.ok !== true) {
+            setError(result && result.message ? result.message : t('actionFailed'))
+            return
+          }
+          if ((result.records || 0) === 0) setError(t('purgeNothing'))
+          else setError(fill(t, 'purgeDone', { records: result.records || 0, size: formatSize(result.bytes || 0) }))
+          loadStats()
+          loadHistory()
+        }).catch(function (failure) {
+          setError(failure && failure.message ? failure.message : t('actionFailed'))
+        }).finally(function () { setStorageBusy('') })
+      }
+
+      var saveConfig = function (patch) {
+        setStorageBusy('config')
+        setError('')
+        api.setConfig(patch).then(function (result) {
+          if (!result || result.ok !== true) {
+            setError(result && result.message ? result.message : t('actionFailed'))
+            return
+          }
+          setStats(function (current) {
+            if (current === null) return current
+            var next = {}
+            for (var key in current) next[key] = current[key]
+            next.autoClean = result.autoClean === true
+            next.keepRecent = result.keep
+            return next
+          })
+          loadStats()
+        }).catch(function (failure) {
+          setError(failure && failure.message ? failure.message : t('actionFailed'))
+        }).finally(function () { setStorageBusy('') })
       }
 
       var statusText = function (record) {
@@ -1929,6 +1856,78 @@ window.__ModuleLoader__.load({
                   : createElement('div', { key: 'rows', className: 'ecp_histRows' }, visibleHistory.map(historyRow)))),
       ])
 
+      var storageSummary = stats === null ? null : String(t('storageSummary'))
+        .replace('{n}', String(stats.records || 0))
+        .replace('{size}', formatSize(stats.bytes))
+        .replace('{cleanable}', String(stats.cleanable || 0))
+
+      var storage = createElement('div', { key: 'storage', className: 'ecp_settingsPane' }, [
+        createElement('div', { key: 'hint', className: 'ecp_settingsHint' }, t('storageHint')),
+        stats === null
+          ? createElement('div', { key: 'loading', className: 'ecp_diffLoading' }, t('diffLoading'))
+          : createElement('div', { key: 'body', className: 'ecp_storage', 'data-checkpoint-storage': '' }, [
+            createElement('div', { key: 'title', className: 'ecp_storageTitle' }, t('storageTitle')),
+            createElement('div', { key: 'sum' }, storageSummary),
+            createElement('div', { key: 'pinned' }, format(t, 'storagePinned', stats.pinned || 0)),
+            createElement('div', { key: 'policy' }, format(t, 'storagePolicy', stats.keepRecent || 30)),
+            createElement('div', { key: 'auto', className: 'ecp_storageSetting' }, [
+              createElement('label', { key: 'toggle', className: 'ecp_storageToggle' }, [
+                createElement('input', {
+                  key: 'box',
+                  type: 'checkbox',
+                  className: 'ecp_storageCheck',
+                  checked: stats.autoClean === true,
+                  disabled: storageBusy !== '',
+                  onChange: function (event) { saveConfig({ autoClean: event.target.checked === true }) },
+                }),
+                createElement('span', { key: 'text' }, t('storageAutoClean')),
+              ]),
+              createElement('label', { key: 'keep', className: 'ecp_storageToggle' }, [
+                createElement('span', { key: 'text' }, t('storageKeep')),
+                createElement('select', {
+                  key: 'select',
+                  className: 'ecp_storageSelect',
+                  value: String(stats.keepRecent || 30),
+                  disabled: storageBusy !== '',
+                  onChange: function (event) { saveConfig({ keep: Number(event.target.value) }) },
+                }, [10, 20, 30, 50, 100, 200].map(function (option) {
+                  return createElement('option', { key: option, value: String(option) },
+                    format(t, 'storageKeepOption', option))
+                })),
+              ]),
+            ]),
+            createElement('div', { key: 'row', className: 'ecp_storageRow' }, [
+              createElement('span', { key: 'cleanable' },
+                String(stats.cleanableBytes ? formatSize(stats.cleanableBytes) : '0 B')),
+              createElement('button', {
+                key: 'clean',
+                type: 'button',
+                className: 'ecp_btn' + (cleanConfirm ? ' is-confirm' : ''),
+                disabled: storageBusy !== '' || (stats.cleanable || 0) === 0,
+                onClick: runClean,
+              }, cleanConfirm ? t('confirmClean') : t('clean')),
+            ]),
+            stats.failure ? createElement('div', { key: 'failure', className: 'ecp_storageWarn' },
+              fill(t, 'storageFailure', { message: stats.failure.message })) : null,
+            stats.orphans && (stats.orphans.sessions || 0) > 0 ? createElement('div', { key: 'orphans', className: 'ecp_storageOrphans' }, [
+              createElement('div', { key: 'line', className: 'ecp_storageOrphanText' },
+                fill(t, 'storageOrphans', {
+                  sessions: stats.orphans.sessions || 0,
+                  records: stats.orphans.records || 0,
+                  size: formatSize(stats.orphans.bytes || 0),
+                })),
+              createElement('div', { key: 'hint', className: 'ecp_storageHint' }, t('storageOrphanHint')),
+              createElement('button', {
+                key: 'purge',
+                type: 'button',
+                className: 'ecp_btn' + (purgeConfirm ? ' is-confirm' : ''),
+                disabled: storageBusy !== '',
+                onClick: runPurge,
+              }, purgeConfirm ? t('confirmPurge') : t('purgeOrphans')),
+            ]) : null,
+          ]),
+      ])
+
       var config = createElement('div', { key: 'config', className: 'ecp_settingsPane' }, [
         createElement('div', { key: 'hint', className: 'ecp_settingsHint' }, t('settingsHint')),
         row('resident', t('resident'), t('residentHint')),
@@ -1958,8 +1957,14 @@ window.__ModuleLoader__.load({
             className: 'ecp_tab' + (tab === 'config' ? ' is-active' : ''),
             onClick: function () { setTab('config') },
           }, t('tabsConfig')),
+          createElement('button', {
+            key: 'storage',
+            type: 'button',
+            className: 'ecp_tab' + (tab === 'storage' ? ' is-active' : ''),
+            onClick: function () { setTab('storage') },
+          }, t('storage')),
         ]),
-        tab === 'overview' ? overview : config,
+        tab === 'overview' ? overview : (tab === 'config' ? config : storage),
       ])
     }
 
@@ -2025,6 +2030,10 @@ window.__ModuleLoader__.load({
         // sessionId slot with its own sentinel turn.
         getConfig: function () { return call('get', 'config:', -999997) },
         setConfig: function (patch) { return call('undo', 'config:' + JSON.stringify(patch), -999997) },
+        // The Settings storage page has no session of its own, so it asks for
+        // the whole store: `*` is the same sentinel the history page uses.
+        statsAll: function () { return call('get', '*', -999999) },
+        cleanAll: function () { return call('undo', '*', -999999) },
       }
 
       var openReview = function (coordinates, index) {

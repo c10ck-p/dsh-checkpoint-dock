@@ -87,8 +87,8 @@ Checkpoints are numbered in session order, and the overview groups them by DSH s
 - Only writes made through DSH file tools are captured. Writes from shells, build scripts, git, or external editors are not checkpointed.
 - The per-file limit is 4 MiB. Larger files are recorded with approximate line counts and are excluded from safe undo.
 - A damaged record file is renamed to `*.corrupt-<timestamp>` and isolated. Only that entry is lost; the rest of the session keeps working.
-- Deleting a session in DSH does not delete its checkpoints. The dock's storage panel lists them as deleted-session data and lets you decide when to clean up.
-- The storage panel can enable automatic cleanup and pick how many recent checkpoints to keep (10–200). When enabled, the oldest content is trimmed at the end of any turn that exceeds the limit; pinned checkpoints are never cleaned.
+- Deleting a session in DSH does not delete its checkpoints. Settings → Checkpoints → Storage lists them as deleted-session data and lets you decide when to clean up.
+- The storage page reports every session together. It can enable automatic cleanup and pick how many recent checkpoints to keep (10–200). When enabled, the oldest content is trimmed at the end of any turn that exceeds the limit; pinned checkpoints are never cleaned.
 
 ## Limitations
 
@@ -97,5 +97,5 @@ Checkpoints are numbered in session order, and the overview groups them by DSH s
 - Undo / Revert are overwrite-style restores: files created outside the reverted turn are not deleted.
 - Cross-session protection is checked on Undo / Redo / Revert, not as a continuous file-edit lock. Two sessions can still write the same file concurrently; if the other session's write lands before this turn is sealed, this turn's after state may already contain it. Fully preventing that requires workspace-level write serialization.
 - No whole-workspace snapshots, conversation rollback, or config rollback. Use a dedicated checkpoint/snapshot plugin for those.
-- Checkpoints of deleted sessions are not reclaimed automatically; clean them up from the dock's storage panel. The cleanup skips records written in the last hour so a freshly created session is never touched.
+- Checkpoints of deleted sessions are not reclaimed automatically; clean them up from Settings → Checkpoints → Storage. The cleanup skips records written in the last hour so a freshly created session is never touched.
 - v1 records have no after content, so diff and redo are unavailable for them. There is no automatic migration.

@@ -235,3 +235,32 @@ test('auto clean trims an over-limit session and respects the setting', async ()
   assert.equal(records.length, 6, 'records stay as metadata')
   assert.equal(records.filter((r) => r.contentRemoved).length, 1)
 })
+
+test('the whole-store scope reports and cleans every session', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  await store.setConfig({ keep: 5, autoClean: false })
+
+  const write = async (sessionId, turn) => {
+    const file = path.join(cwd, `${sessionId}-${turn}.txt`)
+    await fs.writeFile(file, `before ${sessionId} ${turn}\\n`)
+    await store.capture({ sessionId, cwd, turn, absolute: file, prompt: '' })
+    await fs.writeFile(file, `after ${sessionId} ${turn}\\n`)
+    await store.seal(sessionId, turn, 0)
+  }
+  for (let turn = 1; turn <= 6; turn += 1) await write('session-x', turn)
+  for (let turn = 1; turn <= 3; turn += 1) await write('session-y', turn)
+
+  // Settings has no session of its own, so `*` is the whole store: every
+  // session is counted, and each one keeps its own last 5 records.
+  const stats = await store.stats('*')
+  assert.equal(stats.records, 9)
+  assert.equal(stats.cleanable, 1)
+
+  const cleaned = await store.clean('*')
+  assert.equal(cleaned.ok, true)
+  assert.equal(cleaned.records, 1)
+  assert.equal((await store.loadAll('session-y')).filter((record) => record.contentRemoved).length, 0)
+})
