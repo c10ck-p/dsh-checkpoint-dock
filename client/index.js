@@ -947,18 +947,45 @@ window.__ModuleLoader__.load({
           var binding = props.sessions && props.sessions.binding ? props.sessions.binding(sessionId) : undefined
           controller = binding && binding.session
         } catch (failure) {}
-        if (controller && typeof controller.loadThrough === 'function' && typeof seq === 'number' && seq > 0) {
-          Promise.resolve().then(function () {
-            return controller.loadThrough(seq)
-          }).catch(function () {}).then(scan)
-          return
+        // Load old history page by page and yield to the browser between pages.
+        // loadThrough() accumulates all pages and prepends them in one shot,
+        // which blocks the UI for seconds on a fresh/refreshed session.
+        var ensureHistory = function (seq) {
+          if (!controller || typeof seq !== 'number' || seq <= 0) return Promise.resolve()
+          if (typeof controller.baseSeq === 'number' && controller.baseSeq <= seq) return Promise.resolve()
+          var pages = 0
+          var waits = 0
+          var next = function () {
+            if (pages >= 40) return Promise.resolve()
+            if (typeof controller.baseSeq === 'number' && controller.baseSeq <= seq) return Promise.resolve()
+            if (controller.hasMore === false) return Promise.resolve()
+            if (typeof controller.loadOlder !== 'function') {
+              if (typeof controller.loadThrough !== 'function') return Promise.resolve()
+              return Promise.resolve(controller.loadThrough(seq)).catch(function () {})
+            }
+            if (controller.loadingOlder) {
+              if (waits >= 25) return Promise.resolve()
+              waits += 1
+              return wait(80).then(next)
+            }
+            var before = controller.baseSeq
+            return Promise.resolve(controller.loadOlder()).catch(function () {}).then(function () {
+              pages += 1
+              return wait(16)
+            }).then(function () {
+              if (controller.baseSeq === before) return Promise.resolve()
+              return next()
+            })
+          }
+          return next()
         }
-        scan()
+        ensureHistory(seq).then(scan).catch(scan)
       }
 
       var activate = function (record) {
         choose(record.turn)
-        jumpToTurn(record.turn, record.seq)
+        // Let the selected row paint before any history loading starts.
+        setTimeout(function () { jumpToTurn(record.turn, record.seq) }, 0)
       }
 
       var filteredRecords = filter === 'all'
