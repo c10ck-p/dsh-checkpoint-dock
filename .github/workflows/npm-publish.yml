@@ -25,7 +25,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm >= 11.5.1; no NODE_AUTH_TOKEN is used, the
+      # OIDC token from `id-token: write` authenticates the publish instead.
+      - name: Check npm version
+        run: |
+          node -e "
+            const version = require('child_process').execSync('npm --version').toString().trim();
+            const [major, minor] = version.split('.').map(Number);
+            if (major < 11 || (major === 11 && minor < 5)) {
+              console.error('npm ' + version + ' is too old for trusted publishing');
+              process.exit(1);
+            }
+            console.log('npm ' + version);
+          "
 
       - name: Verify release tag matches package version
         env:
@@ -49,5 +62,3 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
