@@ -638,7 +638,14 @@ window.__ModuleLoader__.load({
       var refresh = useCallback(function () {
         if (!sessionId || !api) return
         api.list(sessionId).then(function (list) {
-          var next = Array.isArray(list) ? list : []
+          // A malformed or empty answer is not "this session has no
+          // checkpoints": keeping the last good list beats hiding the dock
+          // while the host half is still coming up.
+          if (!Array.isArray(list)) {
+            setLoaded(true)
+            return
+          }
+          var next = list
           var signature = next.map(function (record) {
             return [record.sessionId, record.turn, record.status, record.pinned ? 1 : 0,
               record.contentRemoved ? 1 : 0, record.added || 0, record.deleted || 0,
@@ -678,11 +685,21 @@ window.__ModuleLoader__.load({
       }, [refresh])
 
       useEffect(function () {
-        if (collapsed) return undefined
+        // Keep polling even while collapsed: a dock that missed its first load
+        // (host half still starting, service not injected yet) would otherwise
+        // stay empty — and therefore invisible — until the page was reloaded.
+        var delay = collapsed ? 15000 : 5000
         var timer = setInterval(function () {
           if (!document.hidden) refresh()
-        }, 5000)
-        return function () { clearInterval(timer) }
+        }, delay)
+        var onVisible = function () {
+          if (!document.hidden) refresh()
+        }
+        document.addEventListener('visibilitychange', onVisible)
+        return function () {
+          clearInterval(timer)
+          document.removeEventListener('visibilitychange', onVisible)
+        }
       }, [collapsed, refresh])
 
       useEffect(function () {
