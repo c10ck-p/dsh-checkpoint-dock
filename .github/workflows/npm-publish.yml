@@ -60,13 +60,5 @@ jobs:
       - name: Unit tests
         run: npm test
 
-      - name: OIDC environment
-        run: |
-          node -e "
-            console.log('GITHUB_ACTIONS=' + process.env.GITHUB_ACTIONS);
-            console.log('id-token url present=' + Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL));
-            console.log('id-token request token present=' + Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN));
-          "
-
       - name: Publish to npm
-        run: npm publish --access public --provenance --loglevel=verbose
+        run: npm publish --access public --provenance
