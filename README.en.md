@@ -13,6 +13,10 @@ An IDE-style checkpoint dock for DeepSeek Harness. Every turn in which the agent
 
 DSH's built-in “edited N files” card tells you what a turn produced. This plugin is the part that lets you take it back.
 
+<p align="center">
+  <img src="docs/preview-dark.png" width="900" alt="Checkpoint dock preview">
+</p>
+
 ## Highlights
 
 - **Per-turn, per-file checkpoints**: each checkpoint stores only the files that turn actually changed — no conversation copies, no whole-workspace snapshots.

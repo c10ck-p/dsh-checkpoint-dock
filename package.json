@@ -36,7 +36,8 @@
     "cordis.patch.yml",
     "LICENSE",
     "README.md",
-    "README.en.md"
+    "README.en.md",
+    "docs"
   ],
   "dsh": {
     "manifestVersion": 1,
