@@ -559,7 +559,7 @@ window.__ModuleLoader__.load({
       var confirmRevertState = useState(false)
       var confirmRevert = confirmRevertState[0]
       var setConfirmRevert = confirmRevertState[1]
-      var collapsedState = useState(false)
+      var collapsedState = useState(true)
       var collapsed = collapsedState[0]
       var setCollapsed = collapsedState[1]
       var filterState = useState('all')
