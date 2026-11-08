@@ -1,6 +1,13 @@
-# dsh-checkpoint-dock
+<p align="center">
+  <a href="README.md">中文</a> | <b>English</b>
+</p>
 
-[中文](README.md)
+<p align="center">
+  <img alt="DSH >= 0.2.0" src="https://img.shields.io/badge/DSH-%3E%3D%200.2.0-4B67B4?style=flat-square">
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-4B67B4?style=flat-square"></a>
+</p>
+
+# dsh-checkpoint-dock
 
 An IDE-style checkpoint dock for DeepSeek Harness. Every turn in which the agent changes files gets its own checkpoint above the composer, with **Keep, Undo, Redo, and Revert to here** built in.
 
