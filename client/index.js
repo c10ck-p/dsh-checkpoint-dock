@@ -917,8 +917,10 @@ window.__ModuleLoader__.load({
           ]
           for (var index = 0; index < selectors.length; index += 1) {
             var anchor = document.querySelector(selectors[index])
-            if (anchor && !anchor.hidden && anchor.offsetParent !== null && typeof anchor.scrollIntoView === 'function') {
-              anchor.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            if (anchor && !anchor.hidden && typeof anchor.scrollIntoView === 'function') {
+              // Instant, not smooth: smooth scrolling a virtualized transcript
+              // renders every intermediate turn and blocks for seconds.
+              anchor.scrollIntoView({ behavior: 'auto', block: 'center' })
               return true
             }
           }
