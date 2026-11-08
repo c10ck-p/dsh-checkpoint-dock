@@ -201,6 +201,7 @@ window.__ModuleLoader__.load({
         undoKept: '已保留，不能再撤销',
         undoAccepted: '检查点 {n} 已保留，之前的修改已一并接受',
         undoNewer: '请先撤销检查点 {n}',
+        redoEarlier: '请先重做检查点 {n}',
         undoKeptLater: '检查点 {n} 已保留，无法撤销更早的检查点',
         undoOpenLater: '检查点 {n} 还在记录中，请稍后再撤销',
         keepNewer: '请先处理检查点 {n}',
@@ -299,6 +300,7 @@ window.__ModuleLoader__.load({
         undoKept: 'Kept checkpoints cannot be undone',
         undoAccepted: 'Checkpoint {n} is kept; earlier changes are accepted',
         undoNewer: 'Undo checkpoint {n} first',
+        redoEarlier: 'Redo checkpoint {n} first',
         undoKeptLater: 'Checkpoint {n} was kept, so earlier checkpoints cannot be undone',
         undoOpenLater: 'Checkpoint {n} is still recording',
         keepNewer: 'Handle checkpoint {n} first',
@@ -688,6 +690,28 @@ window.__ModuleLoader__.load({
         var ordinal = ordinalByTurn[record.turn]
         return typeof ordinal === 'number' ? ordinal : record.turn
       }
+      var displayTurn = function (turn) {
+        var ordinal = ordinalByTurn[turn]
+        return typeof ordinal === 'number' ? ordinal : turn
+      }
+      var actionMessage = function (result, action) {
+        if (!result) return t('actionFailed')
+        var label = typeof result.turn === 'number' ? displayTurn(result.turn) : null
+        if (result.code === 'newer-checkpoint' && label !== null) {
+          return action === 'keep' ? format(t, 'keepNewer', label) : format(t, 'undoNewer', label)
+        }
+        if (result.code === 'newer-active' && label !== null) return format(t, 'undoNewer', label)
+        if (result.code === 'accepted' && label !== null) return format(t, 'undoAccepted', label)
+        if (result.code === 'earlier-undone' && label !== null) return format(t, 'redoEarlier', label)
+        if (result.code === 'newer-open' && label !== null) {
+          if (action === 'keep') return format(t, 'keepOpenLater', label)
+          if (action === 'revert') return format(t, 'revertOpenLater', label)
+          return format(t, 'undoOpenLater', label)
+        }
+        if (result.code === 'kept') return t('undoKept')
+        if (result.code === 'not-ready') return t('undoRecording')
+        return result.message || t('actionFailed')
+      }
 
       var selectedStatus = selected.status
       var recording = selectedStatus === 'open'
@@ -753,8 +777,8 @@ window.__ModuleLoader__.load({
           : redoBlocker === null
             ? format(t, 'redo', selected.turn)
             : redoBlocker.kind === 'earlier'
-              ? '请先重做检查点 ' + String(redoBlocker.record.turn)
-              : format(t, 'undoNewer', redoBlocker.record.turn)
+              ? format(t, 'redoEarlier', displayTurn(redoBlocker.record.turn))
+              : format(t, 'undoNewer', displayTurn(redoBlocker.record.turn))
       var undoDisabled = redoMode
         ? redoDisabled
         : busy !== '' || !sealed || undoBlocked || acceptedLater !== null
@@ -767,13 +791,13 @@ window.__ModuleLoader__.load({
             : selectedStatus === 'undone'
               ? t('undoDone')
               : acceptedLater !== null
-                ? format(t, 'undoAccepted', acceptedLater.turn)
+                ? format(t, 'undoAccepted', displayTurn(acceptedLater.turn))
                 : undoBlocked
                   ? newerBlock.status === 'kept'
-                    ? format(t, 'undoKeptLater', newerBlock.turn)
+                    ? format(t, 'undoKeptLater', displayTurn(newerBlock.turn))
                     : newerBlock.status === 'open'
-                      ? format(t, 'undoOpenLater', newerBlock.turn)
-                      : format(t, 'undoNewer', newerBlock.turn)
+                      ? format(t, 'undoOpenLater', displayTurn(newerBlock.turn))
+                      : format(t, 'undoNewer', displayTurn(newerBlock.turn))
                   : undefined
       var blockHint = acceptedLater !== null
         ? undoTitle
@@ -798,10 +822,10 @@ window.__ModuleLoader__.load({
             ? t('undoDone')
             : newerActive !== null
               ? newerActive.status === 'kept'
-                ? format(t, 'keepKeptLater', newerActive.turn)
+                ? format(t, 'keepKeptLater', displayTurn(newerActive.turn))
                 : newerActive.status === 'open'
-                  ? format(t, 'keepOpenLater', newerActive.turn)
-                  : format(t, 'keepNewer', newerActive.turn)
+                  ? format(t, 'keepOpenLater', displayTurn(newerActive.turn))
+                  : format(t, 'keepNewer', displayTurn(newerActive.turn))
               : undefined
       if (blockHint === '' && newerActive !== null && sealed) blockHint = keepTitle
 
@@ -829,10 +853,10 @@ window.__ModuleLoader__.load({
             : newerList.length === 0
               ? t('revertLatest')
               : revertBlocker !== null
-                ? format(t, 'revertOpenLater', revertBlocker.turn)
+                ? format(t, 'revertOpenLater', displayTurn(revertBlocker.turn))
                 : revertKeptCount > 0
-                  ? format(t, 'revertKeptWarning', revertKeptCount) + '；' + format(t, 'revertTarget', selected.turn)
-                  : format(t, 'revertTarget', selected.turn)
+                  ? format(t, 'revertKeptWarning', revertKeptCount) + '；' + format(t, 'revertTarget', displayTurn(selected.turn))
+                  : format(t, 'revertTarget', displayTurn(selected.turn))
 
       var canPin = !recording && selected.contentRemoved !== true
       var pinDisabled = busy !== '' || pinBusy || !canPin
@@ -929,7 +953,7 @@ window.__ModuleLoader__.load({
         setError('')
         api.keep(sessionId, selected.turn).then(function (result) {
           if (!result || result.ok !== true) {
-            setError(result && result.message ? result.message : t('actionFailed'))
+            setError(actionMessage(result, 'keep'))
             return
           }
           setShowDiff(false)
@@ -946,7 +970,7 @@ window.__ModuleLoader__.load({
           setError('')
           api.undo(sessionId, selected.turn).then(function (result) {
             if (!result || result.ok !== true) {
-              setError(result && result.message ? result.message : t('actionFailed'))
+              setError(actionMessage(result, 'undo'))
               return
             }
             setShowDiff(false)
@@ -966,7 +990,7 @@ window.__ModuleLoader__.load({
         setError('')
         api.undo(sessionId, selected.turn).then(function (result) {
           if (!result || result.ok !== true) {
-            setError(result && result.message ? result.message : t('actionFailed'))
+            setError(actionMessage(result, 'undo'))
             return
           }
           setShowDiff(false)
@@ -996,7 +1020,7 @@ window.__ModuleLoader__.load({
         // reverted workspace. A negative turn selects the revert path.
         api.undo(sessionId, -selected.turn).then(function (result) {
           if (!result || result.ok !== true) {
-            throw new Error(result && result.message ? result.message : t('revertFailed'))
+            throw new Error(actionMessage(result, 'revert'))
           }
           setBusy('')
           setSelectedTurn(selected.turn)
