@@ -1,21 +1,21 @@
 <p align="center">
-  <a href="README.md">中文</a> | <b>English</b>
+  <img src="docs/preview-dark.png" width="900" alt="Checkpoint dock preview">
+</p>
+
+<h1 align="center">dsh-checkpoint-dock</h1>
+
+<p align="center">
+  <a href="README.md">简体中文</a> | <b>English</b>
 </p>
 
 <p align="center">
-  <img alt="DSH >= 0.2.0" src="https://img.shields.io/badge/DSH-%3E%3D%200.2.0-4B67B4?style=flat-square">
-  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-4B67B4?style=flat-square"></a>
+  <img alt="DSH >= 0.2.0" src="docs/badge-dsh.svg">
+  <a href="LICENSE"><img alt="MIT License" src="docs/badge-license.svg"></a>
 </p>
-
-# dsh-checkpoint-dock
 
 An IDE-style checkpoint dock for DeepSeek Harness. Every turn in which the agent changes files gets its own checkpoint above the composer, with **Keep, Undo, Redo, and Revert to here** built in.
 
 DSH's built-in “edited N files” card tells you what a turn produced. This plugin is the part that lets you take it back.
-
-<p align="center">
-  <img src="docs/preview-dark.png" width="900" alt="Checkpoint dock preview">
-</p>
 
 ## Highlights
 

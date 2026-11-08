@@ -1,21 +1,21 @@
 <p align="center">
-  <b>中文</b> | <a href="README.en.md">English</a>
+  <img src="docs/preview-dark.png" width="900" alt="检查点 dock 预览">
+</p>
+
+<h1 align="center">dsh-checkpoint-dock</h1>
+
+<p align="center">
+  <b>简体中文</b> | <a href="README.en.md">English</a>
 </p>
 
 <p align="center">
-  <img alt="DSH >= 0.2.0" src="https://img.shields.io/badge/DSH-%3E%3D%200.2.0-4B67B4?style=flat-square">
-  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-4B67B4?style=flat-square"></a>
+  <img alt="DSH >= 0.2.0" src="docs/badge-dsh.svg">
+  <a href="LICENSE"><img alt="MIT License" src="docs/badge-license.svg"></a>
 </p>
-
-# dsh-checkpoint-dock
 
 为 DeepSeek Harness 提供一个 IDE 风格的检查点 dock：agent 每一轮改过哪些文件、改了什么，都会出现在输入框上方，并且可以直接 **保留、撤销、重做、回退**。
 
 DSH 自带的“已编辑 N 个文件”卡片负责告诉你这一轮产出了什么；这个插件负责的是**改完之后还能反悔**。
-
-<p align="center">
-  <img src="docs/preview-dark.png" width="900" alt="检查点 dock 预览">
-</p>
 
 ## 特色
 
