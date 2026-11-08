@@ -15,6 +15,9 @@ window.__ModuleLoader__.load({
 
     var createElement = react.createElement
     var Fragment = react.Fragment
+    // Slices stay in the same order across renders, so the legend and the pie
+    // always agree; the palette is theme-neutral enough for light and dark.
+    var PIE_COLORS = ['#5b8def', '#4ec9b0', '#f0a63c', '#e5577b', '#a77bf3', '#56b4e9', '#c9b458', '#8a94a6']
     var useState = react.useState
     var useEffect = react.useEffect
     var useCallback = react.useCallback
@@ -226,7 +229,11 @@ window.__ModuleLoader__.load({
         pinRemoved: '内容已清理，无法钉住',
         storage: '存储',
         storageTitle: '检查点存储',
-        storageHint: '检查点按会话保存在本机；这里统计整个存储的占用，并管理自动清理。',
+        storageHint: '检查点按会话保存在本机。这里只统计占用和记录数。',
+        storageBySession: '按会话',
+        storageOther: '其他会话',
+        cleanupTitle: '清理',
+        storagePercent: '{n}%',
         storageSummary: '{n} 条记录 · {size} · 可清理 {cleanable}',
         storagePinned: '{n} 条已钉住，不参与清理',
         storagePolicy: '只清理最早的记录内容，保留最近 {n} 条和所有钉住项；清理后记录仍在，但不能再查看/撤销/重做。',
@@ -336,7 +343,11 @@ window.__ModuleLoader__.load({
         pinRemoved: 'Content was cleaned; cannot pin',
         storage: 'Storage',
         storageTitle: 'Checkpoint storage',
-        storageHint: 'Checkpoints are stored per session. This page reports the whole store and hosts the automatic-cleanup switch.',
+        storageHint: 'Checkpoints are stored per session. This page only reports usage.',
+        storageBySession: 'By session',
+        storageOther: 'Other sessions',
+        cleanupTitle: 'Cleanup',
+        storagePercent: '{n}%',
         storageSummary: '{n} records · {size} · {cleanable} cleanable',
         storagePinned: '{n} pinned records are never cleaned',
         storagePolicy: 'Only the oldest content is cleaned; the latest {n} and all pinned content stay. Records remain, but their diff/undo/redo stop working.',
@@ -434,6 +445,21 @@ window.__ModuleLoader__.load({
       '.ecp_storageOrphanText{color:var(--dsw-alias-label-secondary)}',
       '.ecp_storageHint{color:var(--dsw-alias-label-tertiary);margin:2px 0 4px}',
       '.ecp_storageSetting{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:4px 0 2px}',
+      '.ecp_storageSummary{color:var(--dsw-alias-label-secondary);margin-bottom:8px}',
+      '.ecp_storageCleanable{color:var(--dsw-alias-label-tertiary)}',
+      '.ecp_settingsDivider{height:1px;background:var(--dsw-alias-border-l1);margin:14px 0}',
+      '.ecp_settingsSection{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:6px}',
+      '.ecp_cleanup{border-top:.5px solid var(--dsw-alias-border-l1);padding-top:12px;margin-top:2px}',
+      '.ecp_chart{display:flex;align-items:center;gap:18px;margin:10px 0 6px;flex-wrap:wrap}',
+      '.ecp_pieWrap{position:relative;flex:0 0 auto;width:148px;height:148px}',
+      '.ecp_pie{display:block;color:var(--dsw-alias-label-primary)}',
+      '.ecp_pieCenter{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);pointer-events:none}',
+      '.ecp_legend{display:flex;flex-direction:column;gap:4px;flex:1 1 180px;min-width:180px}',
+      '.ecp_legendRow{display:flex;align-items:center;gap:6px;font-size:11px;line-height:16px}',
+      '.ecp_legendDot{width:8px;height:8px;border-radius:2px;flex:0 0 auto}',
+      '.ecp_legendLabel{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary)}',
+      '.ecp_legendSize{font-family:var(--ds-font-family-code);color:var(--dsw-alias-label-tertiary);flex:0 0 auto}',
+      '.ecp_legendPct{font-family:var(--ds-font-family-code);color:var(--dsw-alias-label-tertiary);flex:0 0 auto;width:44px;text-align:right}',
       '.ecp_storageToggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--dsw-alias-label-secondary)}',
       '.ecp_storageCheck{margin:0;accent-color:var(--dsw-alias-state-accent-primary,#5b8def);cursor:pointer}',
       '.ecp_storageSelect{font:inherit;color:var(--dsw-alias-label-primary);background:transparent;border:.5px solid var(--dsw-alias-border-l2);border-radius:4px;padding:1px 4px;cursor:pointer}',
@@ -1578,7 +1604,7 @@ window.__ModuleLoader__.load({
       // The storage page is the only consumer, so it loads when the tab opens
       // and after every mutation; the dock no longer polls it.
       useEffect(function () {
-        if (tab === 'storage') loadStats()
+        if (tab === 'config' || tab === 'storage') loadStats()
       }, [tab, loadStats])
 
       useEffect(function () {
@@ -1861,77 +1887,190 @@ window.__ModuleLoader__.load({
         .replace('{size}', formatSize(stats.bytes))
         .replace('{cleanable}', String(stats.cleanable || 0))
 
+      // Session titles come from the history rows the Overview tab already
+      // loads, so the pie legend reads like the rest of the panel.
+      var titleBySession = {}
+      history.forEach(function (record) {
+        var id = String(record.sessionId || '')
+        if (id && !titleBySession[id]) titleBySession[id] = sessionLabel(record)
+      })
+      var sessionName = function (id) {
+        var key = String(id || '')
+        if (titleBySession[key]) return titleBySession[key]
+        return key.replace(/^session-/, '').slice(0, 8)
+      }
+      var pieSource = stats && Array.isArray(stats.bySession) ? stats.bySession : []
+      var pieTotal = 0
+      pieSource.forEach(function (entry) { pieTotal += Number(entry.bytes) || 0 })
+      var pieEntries = []
+      pieSource.forEach(function (entry, index) {
+        if (index >= 7) return
+        pieEntries.push({
+          id: String(entry.sessionId || ''),
+          label: sessionName(entry.sessionId),
+          bytes: Number(entry.bytes) || 0,
+          records: Number(entry.records) || 0,
+        })
+      })
+      if (pieSource.length > 7) {
+        var restBytes = 0
+        var restRecords = 0
+        pieSource.slice(7).forEach(function (entry) {
+          restBytes += Number(entry.bytes) || 0
+          restRecords += Number(entry.records) || 0
+        })
+        pieEntries.push({ id: '__rest', label: t('storageOther'), bytes: restBytes, records: restRecords })
+      }
+      var chart = null
+      if (stats !== null) {
+        var chartSize = 148
+        var chartRadius = 52
+        var chartWidth = 19
+        var chartLength = 0
+        var chartCircumference = 2 * Math.PI * chartRadius
+        var chartSlices = []
+        pieEntries.forEach(function (entry, index) {
+          var fraction = pieTotal > 0 ? entry.bytes / pieTotal : 0
+          var length = fraction * chartCircumference
+          if (!(length > 0)) return
+          chartSlices.push(createElement('circle', {
+            key: 'slice:' + entry.id,
+            cx: chartSize / 2,
+            cy: chartSize / 2,
+            r: chartRadius,
+            fill: 'none',
+            stroke: PIE_COLORS[index % PIE_COLORS.length],
+            strokeWidth: chartWidth,
+            strokeDasharray: String(length) + ' ' + String(chartCircumference - length),
+            strokeDashoffset: String(-chartLength),
+            transform: 'rotate(-90 ' + (chartSize / 2) + ' ' + (chartSize / 2) + ')',
+          }))
+          chartLength += length
+        })
+        chart = createElement('div', { key: 'chart', className: 'ecp_chart', 'data-checkpoint-chart': '' }, [
+          createElement('div', { key: 'svg', className: 'ecp_pieWrap' }, [
+            createElement('svg', {
+              key: 'svg',
+              width: chartSize,
+              height: chartSize,
+              viewBox: '0 0 ' + chartSize + ' ' + chartSize,
+              className: 'ecp_pie',
+              role: 'img',
+              'aria-label': t('storageBySession'),
+            }, [
+              createElement('circle', {
+                key: 'track',
+                cx: chartSize / 2,
+                cy: chartSize / 2,
+                r: chartRadius,
+                fill: 'none',
+                stroke: 'currentColor',
+                strokeOpacity: '0.14',
+                strokeWidth: chartWidth,
+              }),
+            ].concat(chartSlices)),
+            createElement('div', { key: 'center', className: 'ecp_pieCenter' }, formatSize(pieTotal)),
+          ]),
+          createElement('div', { key: 'legend', className: 'ecp_legend' }, pieEntries.map(function (entry, index) {
+            var percent = pieTotal > 0 ? Math.round(entry.bytes / pieTotal * 1000) / 10 : 0
+            return createElement('div', { key: 'row:' + entry.id, className: 'ecp_legendRow' }, [
+              createElement('span', {
+                key: 'dot',
+                className: 'ecp_legendDot',
+                style: { background: PIE_COLORS[index % PIE_COLORS.length] },
+              }),
+              createElement('span', { key: 'label', className: 'ecp_legendLabel', title: entry.label }, entry.label),
+              createElement('span', { key: 'size', className: 'ecp_legendSize' }, formatSize(entry.bytes)),
+              createElement('span', { key: 'pct', className: 'ecp_legendPct' }, format(t, 'storagePercent', percent)),
+            ])
+          })),
+        ])
+      }
+
       var storage = createElement('div', { key: 'storage', className: 'ecp_settingsPane' }, [
         createElement('div', { key: 'hint', className: 'ecp_settingsHint' }, t('storageHint')),
         stats === null
           ? createElement('div', { key: 'loading', className: 'ecp_diffLoading' }, t('diffLoading'))
           : createElement('div', { key: 'body', className: 'ecp_storage', 'data-checkpoint-storage': '' }, [
             createElement('div', { key: 'title', className: 'ecp_storageTitle' }, t('storageTitle')),
-            createElement('div', { key: 'sum' }, storageSummary),
+            createElement('div', { key: 'sum', className: 'ecp_storageSummary' }, storageSummary),
             createElement('div', { key: 'pinned' }, format(t, 'storagePinned', stats.pinned || 0)),
-            createElement('div', { key: 'policy' }, format(t, 'storagePolicy', stats.keepRecent || 30)),
-            createElement('div', { key: 'auto', className: 'ecp_storageSetting' }, [
-              createElement('label', { key: 'toggle', className: 'ecp_storageToggle' }, [
-                createElement('input', {
-                  key: 'box',
-                  type: 'checkbox',
-                  className: 'ecp_storageCheck',
-                  checked: stats.autoClean === true,
-                  disabled: storageBusy !== '',
-                  onChange: function (event) { saveConfig({ autoClean: event.target.checked === true }) },
-                }),
-                createElement('span', { key: 'text' }, t('storageAutoClean')),
-              ]),
-              createElement('label', { key: 'keep', className: 'ecp_storageToggle' }, [
-                createElement('span', { key: 'text' }, t('storageKeep')),
-                createElement('select', {
-                  key: 'select',
-                  className: 'ecp_storageSelect',
-                  value: String(stats.keepRecent || 30),
-                  disabled: storageBusy !== '',
-                  onChange: function (event) { saveConfig({ keep: Number(event.target.value) }) },
-                }, [10, 20, 30, 50, 100, 200].map(function (option) {
-                  return createElement('option', { key: option, value: String(option) },
-                    format(t, 'storageKeepOption', option))
-                })),
-              ]),
-            ]),
-            createElement('div', { key: 'row', className: 'ecp_storageRow' }, [
-              createElement('span', { key: 'cleanable' },
-                String(stats.cleanableBytes ? formatSize(stats.cleanableBytes) : '0 B')),
-              createElement('button', {
-                key: 'clean',
-                type: 'button',
-                className: 'ecp_btn' + (cleanConfirm ? ' is-confirm' : ''),
-                disabled: storageBusy !== '' || (stats.cleanable || 0) === 0,
-                onClick: runClean,
-              }, cleanConfirm ? t('confirmClean') : t('clean')),
-            ]),
             stats.failure ? createElement('div', { key: 'failure', className: 'ecp_storageWarn' },
               fill(t, 'storageFailure', { message: stats.failure.message })) : null,
-            stats.orphans && (stats.orphans.sessions || 0) > 0 ? createElement('div', { key: 'orphans', className: 'ecp_storageOrphans' }, [
-              createElement('div', { key: 'line', className: 'ecp_storageOrphanText' },
-                fill(t, 'storageOrphans', {
-                  sessions: stats.orphans.sessions || 0,
-                  records: stats.orphans.records || 0,
-                  size: formatSize(stats.orphans.bytes || 0),
-                })),
-              createElement('div', { key: 'hint', className: 'ecp_storageHint' }, t('storageOrphanHint')),
-              createElement('button', {
-                key: 'purge',
-                type: 'button',
-                className: 'ecp_btn' + (purgeConfirm ? ' is-confirm' : ''),
-                disabled: storageBusy !== '',
-                onClick: runPurge,
-              }, purgeConfirm ? t('confirmPurge') : t('purgeOrphans')),
-            ]) : null,
+            chart,
           ]),
       ])
+
+      // Cleanup lives next to the other settings: the storage tab only reports.
+      var cleanup = null
+      if (stats !== null) {
+        cleanup = createElement('div', { key: 'cleanup', className: 'ecp_cleanup' }, [
+          createElement('div', { key: 'title', className: 'ecp_settingsSection' }, t('cleanupTitle')),
+          createElement('div', { key: 'auto', className: 'ecp_storageSetting' }, [
+            createElement('label', { key: 'toggle', className: 'ecp_storageToggle' }, [
+              createElement('input', {
+                key: 'box',
+                type: 'checkbox',
+                className: 'ecp_storageCheck',
+                checked: stats.autoClean === true,
+                disabled: storageBusy !== '',
+                onChange: function (event) { saveConfig({ autoClean: event.target.checked === true }) },
+              }),
+              createElement('span', { key: 'text' }, t('storageAutoClean')),
+            ]),
+            createElement('label', { key: 'keep', className: 'ecp_storageToggle' }, [
+              createElement('span', { key: 'text' }, t('storageKeep')),
+              createElement('select', {
+                key: 'select',
+                className: 'ecp_storageSelect',
+                value: String(stats.keepRecent || 30),
+                disabled: storageBusy !== '',
+                onChange: function (event) { saveConfig({ keep: Number(event.target.value) }) },
+              }, [10, 20, 30, 50, 100, 200].map(function (option) {
+                return createElement('option', { key: option, value: String(option) },
+                  format(t, 'storageKeepOption', option))
+              })),
+            ]),
+          ]),
+          createElement('div', { key: 'policy', className: 'ecp_settingsHint' }, format(t, 'storagePolicy', stats.keepRecent || 30)),
+          createElement('div', { key: 'row', className: 'ecp_storageRow' }, [
+            createElement('span', { key: 'cleanable', className: 'ecp_storageCleanable' },
+              String(stats.cleanableBytes ? formatSize(stats.cleanableBytes) : '0 B')),
+            createElement('button', {
+              key: 'clean',
+              type: 'button',
+              className: 'ecp_btn' + (cleanConfirm ? ' is-confirm' : ''),
+              disabled: storageBusy !== '' || (stats.cleanable || 0) === 0,
+              onClick: runClean,
+            }, cleanConfirm ? t('confirmClean') : t('clean')),
+          ]),
+          stats.orphans && (stats.orphans.sessions || 0) > 0 ? createElement('div', { key: 'orphans', className: 'ecp_storageOrphans' }, [
+            createElement('div', { key: 'line', className: 'ecp_storageOrphanText' },
+              fill(t, 'storageOrphans', {
+                sessions: stats.orphans.sessions || 0,
+                records: stats.orphans.records || 0,
+                size: formatSize(stats.orphans.bytes || 0),
+              })),
+            createElement('div', { key: 'hint', className: 'ecp_storageHint' }, t('storageOrphanHint')),
+            createElement('button', {
+              key: 'purge',
+              type: 'button',
+              className: 'ecp_btn' + (purgeConfirm ? ' is-confirm' : ''),
+              disabled: storageBusy !== '',
+              onClick: runPurge,
+            }, purgeConfirm ? t('confirmPurge') : t('purgeOrphans')),
+          ]) : null,
+        ])
+      }
 
       var config = createElement('div', { key: 'config', className: 'ecp_settingsPane' }, [
         createElement('div', { key: 'hint', className: 'ecp_settingsHint' }, t('settingsHint')),
         row('resident', t('resident'), t('residentHint')),
         row('jumpToTurn', t('jumpToTurn'), t('jumpHint')),
+        createElement('div', { key: 'divider', className: 'ecp_settingsDivider' }),
+        stats === null
+          ? createElement('div', { key: 'loading', className: 'ecp_diffLoading' }, t('diffLoading'))
+          : cleanup,
         createElement('div', { key: 'reset', className: 'ecp_settingsFooter' }, [
           createElement('button', {
             key: 'button',

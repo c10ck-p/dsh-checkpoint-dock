@@ -264,3 +264,29 @@ test('the whole-store scope reports and cleans every session', async () => {
   assert.equal(cleaned.records, 1)
   assert.equal((await store.loadAll('session-y')).filter((record) => record.contentRemoved).length, 0)
 })
+
+test('the pie breakdown covers every session and adds up to the total', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+
+  const write = async (sessionId, turn, body) => {
+    const file = path.join(cwd, `${sessionId}-${turn}.txt`)
+    await fs.writeFile(file, body)
+    await store.capture({ sessionId, cwd, turn, absolute: file, prompt: '' })
+    await fs.writeFile(file, `${body} after\n`)
+    await store.seal(sessionId, turn, 0)
+  }
+  await write('session-big', 1, 'x'.repeat(2000))
+  await write('session-small', 1, 'y'.repeat(200))
+
+  const stats = await store.stats('*')
+  assert.equal(stats.bySession.length, 2)
+  // Sorted largest first, and the slices never exceed the reported total.
+  assert.equal(stats.bySession[0].sessionId, 'session-big')
+  const sum = stats.bySession.reduce((total, entry) => total + entry.bytes, 0)
+  assert.ok(sum <= stats.bytes)
+  assert.ok(stats.bySession[0].bytes > stats.bySession[1].bytes)
+  assert.equal(stats.bySession[0].records, 1)
+})
