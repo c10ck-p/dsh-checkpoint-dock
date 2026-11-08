@@ -55,7 +55,8 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.1.0",
-    "@deepseek-ai/dsh": ">=0.2.2-rc.1 <0.2.3-0"
+    "@deepseek-ai/dsh": ">=0.2.2-rc.1 <0.2.3-0",
+    "@deepseek-ai/dsh-typert-protocol": "*"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
