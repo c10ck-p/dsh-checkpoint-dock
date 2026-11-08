@@ -183,3 +183,55 @@ test('a fresh session directory keeps its records out of the orphan purge', asyn
   const report = await store.orphans()
   assert.equal(report.records, 0)
 })
+
+test('settings are clamped, persisted and shared by later instances', async () => {
+  const { root } = await tempHome()
+  const store = new EditCheckpointStore(root)
+
+  // Out-of-range values fall back to the default instead of poisoning the file.
+  const fixed = await store.setConfig({ keep: 1, autoClean: 'yes' })
+  assert.equal(fixed.ok, true)
+  assert.equal(fixed.keep, 30)
+  assert.equal(fixed.autoClean, false)
+
+  const saved = await store.setConfig({ keep: 12, autoClean: true })
+  assert.equal(saved.keep, 12)
+  assert.equal(saved.autoClean, true)
+
+  // A second store (a restarted Host) reads the same answer from disk.
+  const reopened = new EditCheckpointStore(root)
+  const config = await reopened.readConfig()
+  assert.deepEqual(config, { autoClean: true, keep: 12 })
+
+  // The panel reads these back through stats().
+  const stats = await reopened.stats('session-empty')
+  assert.equal(stats.autoClean, true)
+  assert.equal(stats.keepRecent, 12)
+})
+
+test('auto clean trims an over-limit session and respects the setting', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'e.txt')
+
+  const store = new EditCheckpointStore(root)
+  for (let turn = 1; turn <= 6; turn += 1) {
+    await fs.writeFile(file, `turn ${turn} before\n`)
+    await store.capture({ sessionId: 'session-e', cwd, turn, absolute: file, prompt: '' })
+    await fs.writeFile(file, `turn ${turn} after\n`)
+    await store.seal('session-e', turn, 0)
+  }
+
+  // Disabled: nothing happens even though the session is over the limit.
+  assert.equal(await store.maybeAutoClean('session-e'), null)
+  assert.equal((await store.loadAll('session-e')).filter((r) => r.contentRemoved).length, 0)
+
+  await store.setConfig({ autoClean: true, keep: 5 })
+  const result = await store.maybeAutoClean('session-e')
+  assert.equal(result.ok, true)
+  assert.equal(result.records, 1)
+  const records = await store.loadAll('session-e')
+  assert.equal(records.length, 6, 'records stay as metadata')
+  assert.equal(records.filter((r) => r.contentRemoved).length, 1)
+})

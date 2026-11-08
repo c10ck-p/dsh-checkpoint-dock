@@ -185,7 +185,13 @@ export async function apply(ctx, config) {
       const turn = event.data.turn
       const seq = announcedSeq.get(session)?.get(turn) ?? event.seq
       void store.noteSeq(session.id, turn, seq).catch(warnSession(session))
-      void store.seal(session.id, turn, seq).catch(warnSession(session))
+      // Cleanup runs at the turn boundary, never mid-turn: the user's "keep N"
+      // setting is applied once the record is sealed and nothing is being
+      // written into it any more.
+      void store
+        .seal(session.id, turn, seq)
+        .then(() => store.maybeAutoClean(session.id))
+        .catch(warnSession(session))
     } catch (error) {
       warn(error)
     }

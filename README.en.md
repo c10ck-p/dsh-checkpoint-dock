@@ -88,6 +88,7 @@ Checkpoints are numbered in session order, and the overview groups them by DSH s
 - The per-file limit is 4 MiB. Larger files are recorded with approximate line counts and are excluded from safe undo.
 - A damaged record file is renamed to `*.corrupt-<timestamp>` and isolated. Only that entry is lost; the rest of the session keeps working.
 - Deleting a session in DSH does not delete its checkpoints. The dock's storage panel lists them as deleted-session data and lets you decide when to clean up.
+- The storage panel can enable automatic cleanup and pick how many recent checkpoints to keep (10–200). When enabled, the oldest content is trimmed at the end of any turn that exceeds the limit; pinned checkpoints are never cleaned.
 
 ## Limitations
 

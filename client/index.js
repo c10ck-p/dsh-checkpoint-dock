@@ -240,6 +240,9 @@ window.__ModuleLoader__.load({
         purgeDone: '已清理 {records} 条检查点，释放 {size}',
         purgeNothing: '没有可清理的已删除会话',
         storageFailure: '最近一次写入失败：{message}',
+        storageAutoClean: '自动清理检查点',
+        storageKeep: '保留最近',
+        storageKeepOption: '{n} 条',
         contentRemoved: '内容已清理',
         recovered: '已恢复',
         diff: '查看变更',
@@ -346,6 +349,9 @@ window.__ModuleLoader__.load({
         purgeDone: 'Removed {records} checkpoints and freed {size}',
         purgeNothing: 'No checkpoints from deleted sessions',
         storageFailure: 'Last write failed: {message}',
+        storageAutoClean: 'Clean up automatically',
+        storageKeep: 'Keep the latest',
+        storageKeepOption: '{n} records',
         contentRemoved: 'Content cleaned',
         recovered: 'Recovered',
         diff: 'View changes',
@@ -425,6 +431,10 @@ window.__ModuleLoader__.load({
       '.ecp_storageOrphans{margin-top:6px;border-top:.5px dashed var(--dsw-alias-border-l2);padding-top:6px}',
       '.ecp_storageOrphanText{color:var(--dsw-alias-label-secondary)}',
       '.ecp_storageHint{color:var(--dsw-alias-label-tertiary);margin:2px 0 4px}',
+      '.ecp_storageSetting{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:4px 0 2px}',
+      '.ecp_storageToggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--dsw-alias-label-secondary)}',
+      '.ecp_storageCheck{margin:0;accent-color:var(--dsw-alias-state-accent-primary,#5b8def);cursor:pointer}',
+      '.ecp_storageSelect{font:inherit;color:var(--dsw-alias-label-primary);background:transparent;border:.5px solid var(--dsw-alias-border-l2);border-radius:4px;padding:1px 4px;cursor:pointer}',
       '.ecp_status{font-family:var(--ds-font-family);font-size:10px;color:var(--dsw-alias-label-tertiary);margin-left:6px}',
       '.ecp_emptyHead{display:flex;align-items:center;gap:8px;padding:10px 12px;color:var(--dsw-alias-label-secondary)}',
       '.ecp_emptyTitle{font-size:12px;font-weight:500;color:var(--dsw-alias-label-primary)}',
@@ -1269,6 +1279,28 @@ window.__ModuleLoader__.load({
         }).finally(function () { setBusy('') })
       }
 
+      var saveConfig = function (patch) {
+        setBusy('config')
+        setError('')
+        api.setConfig(patch).then(function (result) {
+          if (!result || result.ok !== true) {
+            setError(result && result.message ? result.message : t('actionFailed'))
+            return
+          }
+          setStats(function (current) {
+            if (current === null) return current
+            var next = {}
+            for (var key in current) next[key] = current[key]
+            next.autoClean = result.autoClean === true
+            next.keepRecent = result.keep
+            return next
+          })
+          loadStats()
+        }).catch(function (failure) {
+          setError(failure && failure.message ? failure.message : t('actionFailed'))
+        }).finally(function () { setBusy('') })
+      }
+
       var runReview = function () {
         review(0)
       }
@@ -1413,6 +1445,32 @@ window.__ModuleLoader__.load({
             createElement('div', { key: 'sum' }, summary),
             createElement('div', { key: 'pinned' }, format(t, 'storagePinned', stats.pinned || 0)),
             createElement('div', { key: 'policy' }, format(t, 'storagePolicy', stats.keepRecent || 30)),
+            createElement('div', { key: 'auto', className: 'ecp_storageSetting' }, [
+              createElement('label', { key: 'toggle', className: 'ecp_storageToggle' }, [
+                createElement('input', {
+                  key: 'box',
+                  type: 'checkbox',
+                  className: 'ecp_storageCheck',
+                  checked: stats.autoClean === true,
+                  disabled: busy !== '',
+                  onChange: function (event) { saveConfig({ autoClean: event.target.checked === true }) },
+                }),
+                createElement('span', { key: 'text' }, t('storageAutoClean')),
+              ]),
+              createElement('label', { key: 'keep', className: 'ecp_storageToggle' }, [
+                createElement('span', { key: 'text' }, t('storageKeep')),
+                createElement('select', {
+                  key: 'select',
+                  className: 'ecp_storageSelect',
+                  value: String(stats.keepRecent || 30),
+                  disabled: busy !== '',
+                  onChange: function (event) { saveConfig({ keep: Number(event.target.value) }) },
+                }, [10, 20, 30, 50, 100, 200].map(function (option) {
+                  return createElement('option', { key: option, value: String(option) },
+                    format(t, 'storageKeepOption', option))
+                })),
+              ]),
+            ]),
             createElement('div', { key: 'row', className: 'ecp_storageRow' }, [
               createElement('span', { key: 'cleanable' },
                 String(stats.cleanableBytes ? formatSize(stats.cleanableBytes) : '0 B')),
@@ -1962,6 +2020,11 @@ window.__ModuleLoader__.load({
         pin: function (sessionId, turn) { return call('keep', sessionId, -turn) },
         clean: function (sessionId) { return call('undo', sessionId, -999999) },
         purgeOrphans: function (sessionId) { return call('undo', sessionId, -999998) },
+        // Settings ride the get/undo routes: the gateway only ever passes
+        // (sessionId, turn), so the patch travels as a JSON string in the
+        // sessionId slot with its own sentinel turn.
+        getConfig: function () { return call('get', 'config:', -999997) },
+        setConfig: function (patch) { return call('undo', 'config:' + JSON.stringify(patch), -999997) },
       }
 
       var openReview = function (coordinates, index) {
