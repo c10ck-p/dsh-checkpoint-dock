@@ -478,8 +478,8 @@ window.__ModuleLoader__.load({
       '.ecp_settings .ecp_settingsSection{font-size:12px !important;font-weight:600;line-height:18px;color:var(--dsw-alias-label-primary);margin-bottom:6px}',
       '.ecp_cleanup{border-top:.5px solid var(--dsw-alias-border-l1);padding-top:12px;margin-top:2px}',
       '.ecp_crypto{border-top:.5px solid var(--dsw-alias-border-l1);padding-top:12px;margin-top:12px}',
-      '.ecp_revert{display:flex;align-items:center;gap:8px;margin:0 0 6px;padding:6px 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);border:.5px solid var(--dsw-alias-border-l1)}',
-      '.ecp_revertText{flex:1 1 auto;min-width:0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary)}',
+      '.ecp_revertBanner{display:flex;align-items:center;gap:8px;margin:0 0 6px;padding:6px 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);border:.5px solid var(--dsw-alias-border-l1)}',
+      '.ecp_revertBannerText{flex:1 1 auto;min-width:0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary)}',
       '.ecp_settings .ecp_crypto .ecp_settingsHint{font-size:11px !important;line-height:16px;margin:4px 0 6px}',
       '.ecp_settings .ecp_cleanup{font-size:11px !important;line-height:17px;color:var(--dsw-alias-label-secondary)}',
       '.ecp_settings .ecp_cleanup .ecp_settingsHint{font-size:11px !important;line-height:16px;margin:4px 0 6px}',
@@ -1572,8 +1572,8 @@ window.__ModuleLoader__.load({
               })) : null,
           ]),
         ]),
-        collapsed || latestBatch === null ? null : createElement('div', { key: 'revertBanner', className: 'ecp_revert' }, [
-          createElement('span', { key: 'text', className: 'ecp_revertText' },
+        collapsed || latestBatch === null ? null : createElement('div', { key: 'revertBanner', className: 'ecp_revertBanner' }, [
+          createElement('span', { key: 'text', className: 'ecp_revertBannerText' },
             fill(t, 'revertUndone', {
               count: batchCount,
               turn: latestBatch.target === null || latestBatch.target === undefined ? '—' : latestBatch.target,
