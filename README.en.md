@@ -97,6 +97,9 @@ Checkpoints are numbered in session order, and the overview groups them by DSH s
 
 - Checkpoint data is stored in plain text under `$DSH_HOME/edit-checkpoints/` and includes the contents of changed files. Do not commit this directory or sync it to an untrusted location.
 - `.env*`, private keys, and `.ssh/.aws/.gnupg` are skipped by default. This is a conservative filter, not encryption, and not a replacement for secret management.
+- The filter also covers `.npmrc`, `.yarnrc*`, `.pypirc`, `.git-credentials`, `kubeconfig`, `secrets.yaml/json`, `.docker/`, `*.kdbx`, and similar names: a matching file keeps its path and hash in the record, but its contents never enter a checkpoint. It is a best-effort filter, not encryption, and not a replacement for secret management.
+- Tighten the data directory to yourself: `chmod 700 $DSH_HOME/edit-checkpoints`. Keep the DSH web UI bound to `127.0.0.1` and do not forward the port — any client that can reach the gateway can trigger `undo`/`revert` and change workspace files; the confirmation dialog is not a security boundary.
+- A restore writes `.dsh-ckpt-<pid>-<n>.tmp` next to the target file and removes it when done. A file left behind by a DSH crash is safe to delete.
 - Without git, the turn-start/turn-end scan skips `.git`, `node_modules`, `.tmp`, and similar directories, caps a single file at 4 MiB, and stops at 4000 files or 32 MiB in total; a turn that exceeds the budget records only DSH file-tool writes. A large tree that is a git repository reads only the paths git reports, so ignored build output never enters the comparison.
 - The per-file limit is 4 MiB. Larger files are recorded with approximate line counts and are excluded from safe undo.
 - A damaged record file is renamed to `*.corrupt-<timestamp>` and isolated. Only that entry is lost; the rest of the session keeps working.

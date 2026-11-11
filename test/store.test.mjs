@@ -9,7 +9,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 
-import { EditCheckpointStore, hashBytes } from '../lib/store.mjs'
+import { EditCheckpointStore, hashBytes, isSensitivePath } from '../lib/store.mjs'
 
 // Some sandboxes deny writes to the OS temp directory, so the tests keep their
 // scratch space next to the package and clean it up afterwards.
@@ -375,4 +375,24 @@ test('the storage view marks checkpoints of archived sessions', async () => {
   const stats = await store.stats('*')
   assert.equal(stats.bySession.length, 1)
   assert.equal(stats.bySession[0].archived, true)
+})
+
+test('secret-looking paths never become restorable checkpoints', () => {
+  const cwd = path.join('C:', 'proj')
+  const sensitive = ['.npmrc', '.git-credentials', 'secrets.yml', 'kubeconfig', '.docker/config.json', '.ssh/config', 'server.pem', 'vault.kdbx']
+  for (const name of sensitive) {
+    assert.equal(isSensitivePath(cwd, path.join(cwd, ...name.split('/'))), true, name)
+  }
+  const ordinary = ['package.json', 'config.json', 'src/main.js', '.dockerignore']
+  for (const name of ordinary) {
+    assert.equal(isSensitivePath(cwd, path.join(cwd, ...name.split('/'))), false, name)
+  }
+})
+
+test('a turn that is not a whole number never becomes a file path', () => {
+  const store = new EditCheckpointStore(path.join(SCRATCH, 'unused'))
+  assert.throws(() => store.recordFile('session-a', '../escape'), /invalid checkpoint turn/)
+  assert.throws(() => store.recordFile('session-a', -1), /invalid checkpoint turn/)
+  assert.throws(() => store.recordFile('session-a', 1.5), /invalid checkpoint turn/)
+  assert.match(store.recordFile('session-a', 7), /7\.json$/)
 })

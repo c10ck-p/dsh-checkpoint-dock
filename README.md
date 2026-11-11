@@ -97,6 +97,9 @@ dsh plugin --profile desktop remove dsh-checkpoint-dock
 
 - 检查点数据以明文保存在 `$DSH_HOME/edit-checkpoints/`，包含被修改文件的内容；不要提交到仓库，也不要同步到不可信位置。
 - 默认跳过 `.env*`、私钥、`.ssh/.aws/.gnupg` 等敏感路径；这是保守策略，不是加密，不能替代密钥管理。
+- 敏感名单覆盖 `.env*`、私钥、`.ssh/.aws/.gnupg`、`.npmrc`、`.yarnrc*`、`.pypirc`、`.git-credentials`、`kubeconfig`、`secrets.yaml/json`、`.docker/`、`*.kdbx` 等；命中的文件仍会记录路径和哈希，但内容不会进入检查点。这是尽力而为的过滤，不是加密，也不能替代密钥管理。
+- 建议把数据目录收紧到只有自己可读：`chmod 700 $DSH_HOME/edit-checkpoints`。同时让 DSH 网页只绑 `127.0.0.1`，不要做端口转发——任何能调用网关的客户端都能触发 `undo`/`revert` 改工作区文件，前端那个确认框不算安全边界。
+- 恢复时会在目标文件同目录写 `.dsh-ckpt-<pid>-<n>.tmp`，正常结束会删除；DSH 崩溃留下的这类文件不会被自动清理，可以安全删除。
 - 没有 git 时，轮首/轮末的扫描会跳过 `.git`、`node_modules`、`.tmp` 这类目录，单文件上限 4 MiB，整体预算为 4000 个文件 / 32 MiB；超出预算的那一轮只记录 DSH 文件工具的写入。工作区很大又是 git 仓库时只读 git 报告的变更路径，构建产物不会进入比对。
 - 单文件上限为 4 MiB；超过上限的文件只记录近似行数，不参与安全撤销。
 - 记录文件损坏时会被改名为 `*.corrupt-<时间戳>` 隔离，只影响那一条，同会话其他检查点照常可用。
