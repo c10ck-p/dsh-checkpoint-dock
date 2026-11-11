@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Writes that bypass DSH's file tools — a shell command, a script, an editor — are now recorded too: at the end of a turn the plugin compares the turn's snapshot, recovers the pre-image from the served hunks, and adds the files the file tools never saw. Inside a git workspace only; outside one, the file tools remain the only source.
+
 ### Changed
 
 - The dock waits for the conversation to start: the welcome page and a brand-new Session show no dock, and from the first sent message the dock keeps a collapsed row even when the turn changed no files. Expanded, it explains that the session has no checkpoints yet instead of staying hidden.

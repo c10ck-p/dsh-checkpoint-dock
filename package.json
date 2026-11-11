@@ -63,8 +63,8 @@
     "dsh": ">=0.2.2-rc.1 <0.2.3-0"
   },
   "scripts": {
-    "check": "node --check index.mjs && node --check typert.host.mjs && node --check lib/store.mjs && node --check lib/service.mjs && node --check lib/wire.mjs && node --check client/index.js",
-    "test": "node --test test/store.test.mjs"
+    "check": "node --check index.mjs && node --check typert.host.mjs && node --check lib/store.mjs && node --check lib/service.mjs && node --check lib/wire.mjs && node --check lib/unpatch.mjs && node --check client/index.js",
+    "test": "node --test test/store.test.mjs test/unpatch.test.mjs"
   },
   "publishConfig": {
     "access": "public"

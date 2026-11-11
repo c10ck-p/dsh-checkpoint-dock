@@ -6,8 +6,10 @@
 
 import os from 'node:os'
 import path from 'node:path'
+import { readFile } from 'node:fs/promises'
 import { EditCheckpointService } from './lib/service.mjs'
 import { EditCheckpointStore } from './lib/store.mjs'
+import { revertHunks } from './lib/unpatch.mjs'
 
 export const name = 'dsh-checkpoint-dock'
 export const inject = ['fs', 'sessions']
@@ -126,6 +128,91 @@ export async function apply(ctx, config) {
     store.noteFailure(session?.id, error)
   }
 
+  /**
+   * The Host's workspace-changes service, when this DSH ships it. Its summary
+   * is computed from git snapshots taken at turn start and turn end, so it
+   * lists every path a turn changed — including a shell command or a script
+   * that never went through the file tools.
+   * @returns {any}
+   */
+  const changeService = () => {
+    try {
+      const service = typeof ctx.get === 'function' ? ctx.get('workspaceChanges') : undefined
+      if (service === undefined || service === null) return undefined
+      if (typeof service.summary !== 'function' || typeof service.diff !== 'function') return undefined
+      return service
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Byte cap for reading a path's current text back for the reverse image. */
+  const EXTERNAL_MAX_BYTES = 4 * 1024 * 1024
+
+  /**
+   * Capture the paths a turn changed outside the file tools.
+   *
+   * Those paths never passed a `fs/*-intent` hook, so the pre-image has to be
+   * rebuilt from the comparison the workspace-changes service serves: its hunks
+   * describe every removed and added line, and a hunk that does not apply to
+   * the current file leaves the path out rather than restoring a guess.
+   * @param {any} session @param {number} turn @param {number} seq
+   */
+  const captureExternal = async (session, turn, seq) => {
+    const service = changeService()
+    if (service === undefined) return
+    if (!Number.isInteger(seq) || seq <= 0) return
+    const cwd = session.header?.cwd
+    if (typeof cwd !== 'string' || cwd === '') return
+    const summary = service.summary(session.id, seq)
+    const files = summary !== undefined && summary !== null && Array.isArray(summary.files) ? summary.files : []
+    for (let index = 0; index < files.length; index += 1) {
+      const entry = files[index]
+      if (entry === null || typeof entry !== 'object' || typeof entry.path !== 'string') continue
+      // A binary or oversized side has no text to reverse; recording it without
+      // a pre-image would offer an undo that cannot restore anything.
+      if (entry.binary === true || entry.oversized === true) continue
+      const absolute = path.isAbsolute(entry.path) ? entry.path : path.resolve(cwd, entry.path)
+      if (isGitMetadata(cwd, absolute)) continue
+      if (await store.hasFile(session.id, turn, absolute)) continue
+      let comparison
+      try {
+        comparison = await service.diff(session.id, seq, index)
+      } catch {
+        continue
+      }
+      if (comparison === undefined || comparison === null) continue
+      if (comparison.kind !== 'text' || comparison.coarse === true) continue
+      /** @type {{exists: boolean, buffer: Buffer | null}} */
+      let before
+      if (comparison.before === false) {
+        before = { exists: false, buffer: null }
+      } else {
+        const after = comparison.after === false ? '' : await readText(absolute)
+        if (after === undefined) continue
+        const text = revertHunks(after, comparison.hunks)
+        if (text === null) continue
+        before = { exists: true, buffer: Buffer.from(text, 'utf8') }
+      }
+      await store.capture({ sessionId: session.id, cwd, turn, absolute, prompt: latestPrompt(session), before })
+    }
+  }
+
+  /**
+   * Current text of a path, or undefined when it is too large or unreadable.
+   * @param {string} absolute
+   * @returns {Promise<string | undefined>}
+   */
+  const readText = async (absolute) => {
+    try {
+      const buffer = await readFile(absolute)
+      if (buffer.length > EXTERNAL_MAX_BYTES) return undefined
+      return buffer.toString('utf8')
+    } catch {
+      return undefined
+    }
+  }
+
   const captureIntent = async (target, actor, next) => {
     const intent = await next()
     try {
@@ -160,6 +247,39 @@ export async function apply(ctx, config) {
   ctx.on('fs/edit-intent', captureIntent, { prepend: true })
   ctx.on('fs/delete-intent', captureIntent, { prepend: true })
 
+  /** Turns settling right now, so the two announcing events cannot seal twice. */
+  const settling = new WeakMap()
+
+  /**
+   * Run the end-of-turn work once: tag the record, capture the paths the file
+   * tools missed, seal it against the disk, then apply the cleanup policy.
+   * @param {any} session @param {number} turn @param {number} seq
+   */
+  const settle = (session, turn, seq) => {
+    let byTurn = settling.get(session)
+    if (byTurn === undefined) {
+      byTurn = new Map()
+      settling.set(session, byTurn)
+    }
+    const running = byTurn.get(turn)
+    if (running !== undefined) return running
+    const work = (async () => {
+      await store.noteSeq(session.id, turn, seq)
+      await captureExternal(session, turn, seq)
+      await store.seal(session.id, turn, seq)
+      // Cleanup runs at the turn boundary, never mid-turn: the user's "keep N"
+      // setting is applied once the record is sealed and nothing is being
+      // written into it any more.
+      await store.maybeAutoClean(session.id)
+    })()
+      .catch(warnSession(session))
+      .finally(() => {
+        byTurn.delete(turn)
+      })
+    byTurn.set(turn, work)
+    return work
+  }
+
   ctx.on('session/event', (session, event) => {
     try {
       if (event.type === 'turn/start') {
@@ -177,21 +297,12 @@ export async function apply(ctx, config) {
           announcedSeq.set(session, map)
         }
         map.set(turn, event.seq)
-        void store.noteSeq(session.id, turn, event.seq).catch(warnSession(session))
-        void store.seal(session.id, turn, event.seq).catch(warnSession(session))
+        void settle(session, turn, event.seq)
         return
       }
       if (event.type !== 'turn/end') return
       const turn = event.data.turn
-      const seq = announcedSeq.get(session)?.get(turn) ?? event.seq
-      void store.noteSeq(session.id, turn, seq).catch(warnSession(session))
-      // Cleanup runs at the turn boundary, never mid-turn: the user's "keep N"
-      // setting is applied once the record is sealed and nothing is being
-      // written into it any more.
-      void store
-        .seal(session.id, turn, seq)
-        .then(() => store.maybeAutoClean(session.id))
-        .catch(warnSession(session))
+      void settle(session, turn, announcedSeq.get(session)?.get(turn) ?? event.seq)
     } catch (error) {
       warn(error)
     }

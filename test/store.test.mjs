@@ -290,3 +290,46 @@ test('the pie breakdown covers every session and adds up to the total', async ()
   assert.ok(stats.bySession[0].bytes > stats.bySession[1].bytes)
   assert.equal(stats.bySession[0].records, 1)
 })
+
+test('a before image handed in from a reverse diff restores like any other', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'script.txt')
+  // A shell command wrote this file: no fs intent ever ran for it, so the
+  // caller passes the pre-image it rebuilt from the served comparison.
+  await fs.writeFile(file, 'alpha\nbeta\ngamma\n')
+  const before = Buffer.from('alpha\nBETA\ngamma\n', 'utf8')
+
+  const store = new EditCheckpointStore(root)
+  await store.capture({ sessionId: 'session-x', cwd, turn: 3, absolute: file, prompt: 'run it', before: { exists: true, buffer: before } })
+  await store.seal('session-x', 3, 0)
+
+  const [record] = await store.loadAll('session-x')
+  assert.equal(record.files.length, 1)
+  assert.equal(record.files[0].existedBefore, true)
+  assert.equal(record.added, 1)
+  assert.equal(record.deleted, 1)
+
+  const undo = await store.undo('session-x', 3)
+  assert.equal(undo.ok, true, undo.message)
+  assert.equal(await fs.readFile(file, 'utf8'), before.toString('utf8'))
+})
+
+test('a path first seen as absent still records an external creation', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'created-by-shell.txt')
+  await fs.writeFile(file, 'brand new\n')
+
+  const store = new EditCheckpointStore(root)
+  await store.capture({ sessionId: 'session-y', cwd, turn: 4, absolute: file, prompt: '', before: { exists: false, buffer: null } })
+  await store.seal('session-y', 4, 0)
+
+  const [record] = await store.loadAll('session-y')
+  assert.equal(record.files[0].existedBefore, false)
+  const undo = await store.undo('session-y', 4)
+  assert.equal(undo.ok, true, undo.message)
+  await assert.rejects(fs.readFile(file, 'utf8'))
+})

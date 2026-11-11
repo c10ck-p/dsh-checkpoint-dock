@@ -78,6 +78,8 @@ Uninstalling leaves existing checkpoints in place; the data stays in `$DSH_HOME/
 3. Use **Keep / Undo / Redo / Revert to here** to act on that turn.
 4. The welcome page shows no dock; once you send the first message the dock keeps a single collapsed row even if the turn changed no files, and expanding it says there are no checkpoints yet. To browse everything, open **Settings → Checkpoints → Overview**.
 
+A turn settles its files when it ends: besides DSH's own file tools, writes from shell commands, scripts, and editors inside a git workspace are recovered from the turn's snapshot and recorded too. Outside a git repository only DSH's file tools are recorded.
+
 When residency is off, the dock appears only while a turn has unhandled file changes and hides again once they are handled. Settings are stored per browser and shared across DSH ports on the same machine.
 
 Checkpoints are numbered in session order, and the overview groups them by DSH session title, so checkpoints from different conversations never blur together.
