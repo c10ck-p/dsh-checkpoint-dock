@@ -141,3 +141,21 @@ test('a staged rename names the path it came from', async () => {
   assert.equal(newer.renamedFrom, older.absolute)
   assert.equal(older.before.toString(), 'one\n')
 })
+
+test('a huge dirty tree stops at the baseline budget', async () => {
+  const dir = await repo()
+  await fs.writeFile(path.join(dir, 'tracked.txt'), 'v1\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-q', '-m', 'init')
+  for (let index = 0; index < 6; index += 1) {
+    await fs.writeFile(path.join(dir, `dirty-${index}.txt`), `change ${index}\n`)
+  }
+
+  const baseline = await takeGitBaseline(dir, { maxFiles: 3, maxBytes: 32 * 1024 * 1024 })
+  assert.equal(baseline.exceeded, true)
+  assert.ok(baseline.dirty.size <= 3, `kept ${baseline.dirty.size} files`)
+
+  const plenty = await takeGitBaseline(dir, { maxFiles: 100, maxBytes: 32 * 1024 * 1024 })
+  assert.equal(plenty.exceeded, false)
+  assert.equal(plenty.dirty.size, 6)
+})
