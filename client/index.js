@@ -430,6 +430,7 @@ window.__ModuleLoader__.load({
       '.ecp_pinPill{color:var(--dsw-alias-state-business-primary);font-size:10px;font-family:var(--ds-font-family);margin-left:6px}',
       '.ecp_diff{border-top:.5px solid var(--dsw-alias-border-l1);max-height:260px;overflow:auto;overscroll-behavior:contain;background:var(--dsw-alias-bg-layer-2)}',
       '.ecp_diffFile{padding:6px 12px;border-bottom:.5px solid var(--dsw-alias-border-l1)}',
+      '.ecp_diffFile.is-focus{box-shadow:inset 2px 0 0 var(--dsw-alias-state-business-primary,var(--dsw-alias-label-primary))}',
       '.ecp_diffHead{display:flex;align-items:center;gap:6px;font-family:var(--ds-font-family-code);font-size:11px;color:var(--dsw-alias-label-secondary)}',
       '.ecp_patch{margin:4px 0 0;padding:0;list-style:none;font-family:var(--ds-font-family-code);font-size:11px;line-height:16px;white-space:pre-wrap;word-break:break-word}',
       '.ecp_patchLine{padding:0 2px}',
@@ -661,6 +662,23 @@ window.__ModuleLoader__.load({
       var diffLoadingState = useState(false)
       var diffLoading = diffLoadingState[0]
       var setDiffLoading = diffLoadingState[1]
+      var diffFocusState = useState(null)
+      var diffFocus = diffFocusState[0]
+      var setDiffFocus = diffFocusState[1]
+      var diffRefs = useRef({})
+
+      // Bringing a file into view is a render effect: the patch panel only
+      // exists after the diff arrives, so scrolling has to wait for it.
+      useEffect(function () {
+        if (!showDiff || !diffFocus) return
+        var node = diffRefs.current[diffFocus.path]
+        if (!node || typeof node.scrollIntoView !== 'function') return
+        try {
+          node.scrollIntoView({ block: 'nearest' })
+        } catch (failure) {
+          node.scrollIntoView()
+        }
+      }, [showDiff, diff, diffFocus])
       var pinBusyState = useState(false)
       var pinBusy = pinBusyState[0]
       var setPinBusy = pinBusyState[1]
@@ -1278,18 +1296,22 @@ window.__ModuleLoader__.load({
         })
       }
 
-      var runReview = function () {
-        review(0)
+      // The DSH changes-review panel reads its own snapshot, which cannot show
+      // writes that bypassed the file tools. The dock's own patch panel can, so
+      // a file row opens that instead of handing off to the reviewer.
+      var openDiffFor = function (path) {
+        setDiffFocus({ path: path, tick: Date.now() })
+        if (!showDiff) toggleDiff()
       }
 
       var fileRow = function (file, fileIndex) {
-        var clickable = typeof openReview === 'function' && !!selected.seq
+        var clickable = !!selected.seq && diffAvailable
         return createElement('li', { key: file.path + ':' + fileIndex }, createElement('button', {
           type: 'button',
           className: 'ecp_file',
           title: file.path,
           onClick: clickable
-            ? function () { review(fileIndex) }
+            ? function () { openDiffFor(file.path) }
             : undefined,
           disabled: !clickable,
         }, [
@@ -1391,7 +1413,11 @@ window.__ModuleLoader__.load({
               body = createElement('ul', { className: 'ecp_patch' },
                 diffFile.patch.split('\n').map(patchLine))
             }
-            diffChildren.push(createElement('div', { key: diffFile.path + ':' + diffFileIndex, className: 'ecp_diffFile' }, [
+            diffChildren.push(createElement('div', {
+              key: diffFile.path + ':' + diffFileIndex,
+              className: 'ecp_diffFile' + (diffFocus && diffFocus.path === diffFile.path ? ' is-focus' : ''),
+              ref: function (node) { diffRefs.current[diffFile.path] = node },
+            }, [
               createElement('div', { key: 'head', className: 'ecp_diffHead' }, [
                 createElement('span', { key: 'path', className: 'ecp_filePath' }, diffFile.path),
                 createElement('span', { key: 'counts', className: 'ecp_fileCounts' }, [

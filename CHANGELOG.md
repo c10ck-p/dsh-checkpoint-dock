@@ -8,6 +8,8 @@
 
 ### Changed
 
+- A file row in the dock now expands the dock's own patch view for that file instead of opening DSH's changes-review sidebar. The sidebar reads its own snapshot and reports the turn as unviewable when the change came from a shell command, which is exactly the case this plugin now records.
+
 - The dock waits for the conversation to start: the welcome page and a brand-new Session show no dock, and from the first sent message the dock keeps a collapsed row even when the turn changed no files. Expanded, it explains that the session has no checkpoints yet instead of staying hidden.
 
 ## 0.1.1
