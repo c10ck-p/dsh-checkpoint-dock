@@ -150,12 +150,12 @@ window.__ModuleLoader__.load({
       zh: {
         checkpoints: '检查点',
         dockTitle: '检查点',
-        noRecords: '还没有检查点。文件被修改后会自动出现在这里。',
+        noRecords: '当前暂无检查点。文件被修改后会自动出现在这里。',
         settingsTab: '检查点',
         settingsTitle: '检查点',
         settingsHint: '控制检查点 Dock 的显示和跳转行为；这些设置只影响当前浏览器。',
         resident: '常驻显示',
-        residentHint: '有检查点时保持显示；关闭后只在本轮有未处理检查点时出现。',
+        residentHint: '对话开始后就保持显示（即使还没有检查点）；关闭后只在本轮有未处理检查点时出现。',
         jumpToTurn: '点击跳转对话',
         jumpHint: '点击检查点时滚动到对应的对话轮次。',
         settingsReset: '恢复默认',
@@ -264,12 +264,12 @@ window.__ModuleLoader__.load({
       en: {
         checkpoints: 'Checkpoints',
         dockTitle: 'Checkpoints',
-        noRecords: 'No checkpoints yet. They appear here after files change.',
+        noRecords: 'No checkpoints in this session yet. They appear here after files change.',
         settingsTab: 'Checkpoints',
         settingsTitle: 'Checkpoints',
         settingsHint: 'Control the checkpoint dock visibility and turn jumping. These settings apply to this browser.',
         resident: 'Always visible',
-        residentHint: 'Keep the dock visible when checkpoints exist; when off, it appears only for unhandled checkpoints in this turn.',
+        residentHint: 'Keep the dock visible once a conversation starts, even before the first checkpoint; when off, it appears only for unhandled checkpoints in this turn.',
         jumpToTurn: 'Jump to turn',
         jumpHint: 'Scroll to the matching conversation turn when a checkpoint is clicked.',
         settingsReset: 'Reset defaults',
@@ -758,6 +758,34 @@ window.__ModuleLoader__.load({
 
       if (!loaded) return null
 
+      // The composer stays mounted on the welcome screen and on a brand-new
+      // Session, so this slot is offered before there is anything to show.
+      // Wait for a prompt in flight or a turn behind the session; a blank
+      // Session keeps the hero page free of an empty dock. The slot hands the
+      // Session snapshot over as a prop; when a host omits it, fall back to
+      // the controller snapshot and, failing that, to the old rule (only show
+      // a dock that has something in it).
+      var sessionSnapshot = props.session
+      if (sessionSnapshot === undefined || typeof sessionSnapshot.blank !== 'boolean') {
+        try {
+          var dockBinding = props.sessions && props.sessions.binding ? props.sessions.binding(sessionId) : undefined
+          var dockController = dockBinding && dockBinding.session
+          if (dockController && typeof dockController.buildSnapshot === 'function') {
+            sessionSnapshot = dockController.buildSnapshot()
+          }
+        } catch (failure) {
+          sessionSnapshot = undefined
+        }
+      }
+      if (sessionSnapshot !== undefined && typeof sessionSnapshot.blank === 'boolean') {
+        var conversationStarted = sessionSnapshot.running === true ||
+          sessionSnapshot.promptAttempted === true ||
+          (sessionSnapshot.blank !== true && sessionSnapshot.awaitingFirstTurn !== true)
+        if (!conversationStarted) return null
+      } else if (records.length === 0) {
+        return null
+      }
+
       var selected = null
       for (var index = 0; index < records.length; index += 1) {
         if (records[index].turn === selectedTurn) { selected = records[index]; break }
@@ -772,14 +800,32 @@ window.__ModuleLoader__.load({
       })) return null
 
       if (records.length === 0) {
-        if (error !== '') {
-          return createElement('section', { className: 'ecp_dock', 'data-checkpoint-dock': '' },
-            createElement('div', { className: 'ecp_panel' },
-              createElement('div', { className: 'ecp_error' }, error)))
-        }
-        // An empty dock is noise above the composer; show it only once this
-        // session has a checkpoint. History stays available in Settings.
-        return null
+        // A conversation that has not touched a file still gets the dock, so
+        // the composer does not grow and shrink between turns. Expanded, it
+        // says why it is empty instead of showing a bare header.
+        return createElement('section', {
+          className: 'ecp_dock',
+          'data-checkpoint-dock': '',
+        }, createElement('div', {
+          className: 'ecp_panel',
+          'data-collapsed': collapsed ? 'true' : 'false',
+        }, [
+          createElement('button', {
+            key: 'head',
+            type: 'button',
+            className: 'ecp_head',
+            'aria-expanded': collapsed ? 'false' : 'true',
+            onClick: function () { setCollapsed(!collapsed) },
+          }, [
+            createElement('span', { key: 'icon', className: 'ecp_headIcon' }, checkpointIcon(15)),
+            createElement('span', { key: 'title', className: 'ecp_headTitle' }, t('checkpoints')),
+            createElement('span', { key: 'count', className: 'ecp_headCount' }, format(t, 'count', 0)),
+            createElement('span', { key: 'chev', className: 'ecp_chev' }, chevron()),
+          ]),
+          collapsed ? null : (error === ''
+            ? createElement('div', { key: 'empty', className: 'ecp_empty' }, t('noRecords'))
+            : createElement('div', { key: 'error', className: 'ecp_error' }, error)),
+        ]))
       }
 
       // Checkpoint numbers are a display ordinal inside one session: the first

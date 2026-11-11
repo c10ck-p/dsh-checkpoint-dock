@@ -76,7 +76,7 @@ Uninstalling leaves existing checkpoints in place; the data stays in `$DSH_HOME/
 1. Let the agent modify files during a turn.
 2. A checkpoint appears above the composer. Expand it to see the files and the diff.
 3. Use **Keep / Undo / Redo / Revert to here** to act on that turn.
-4. With no checkpoints, the dock hides itself. To browse history, open **Settings → Checkpoints → Overview**.
+4. The welcome page shows no dock; once you send the first message the dock keeps a single collapsed row even if the turn changed no files, and expanding it says there are no checkpoints yet. To browse everything, open **Settings → Checkpoints → Overview**.
 
 When residency is off, the dock appears only while a turn has unhandled file changes and hides again once they are handled. Settings are stored per browser and shared across DSH ports on the same machine.
 
