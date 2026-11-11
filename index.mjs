@@ -106,6 +106,17 @@ export async function apply(ctx, config) {
         return false
       }
     },
+    // Archiving keeps the session and its files; only the sidebar hides it.
+    // The storage view marks those rows so a cleanup is never a surprise.
+    archivedLookup: () => {
+      try {
+        const registry = ctx.get('workspaceRegistry')
+        const ids = registry?.archivedSessionIds
+        return ids instanceof Set ? ids : new Set()
+      } catch {
+        return new Set()
+      }
+    },
     logger: ctx.logger,
   })
   /** @type {WeakMap<any, Map<number, number>>} */

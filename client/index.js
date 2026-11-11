@@ -234,6 +234,7 @@ window.__ModuleLoader__.load({
         storageOther: '其他会话',
         cleanupTitle: '清理',
         storagePercent: '{n}%',
+        archived: '已归档',
         storageSummary: '{n} 条记录 · {size} · 可清理 {cleanable}',
         storagePinned: '{n} 条已钉住，不参与清理',
         storagePolicy: '只清理最早的记录内容，保留最近 {n} 条和所有钉住项；清理后记录仍在，但不能再查看/撤销/重做。',
@@ -348,6 +349,7 @@ window.__ModuleLoader__.load({
         storageOther: 'Other sessions',
         cleanupTitle: 'Cleanup',
         storagePercent: '{n}%',
+        archived: 'Archived',
         storageSummary: '{n} records · {size} · {cleanable} cleanable',
         storagePinned: '{n} pinned records are never cleaned',
         storagePolicy: 'Only the oldest content is cleaned; the latest {n} and all pinned content stay. Records remain, but their diff/undo/redo stop working.',
@@ -461,6 +463,7 @@ window.__ModuleLoader__.load({
       '.ecp_pieCenter{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);pointer-events:none}',
       '.ecp_legend{display:flex;flex-direction:column;gap:4px;flex:1 1 180px;min-width:180px}',
       '.ecp_legendRow{display:flex;align-items:center;gap:6px;font-size:11px;line-height:16px}',
+      '.ecp_archivedTag{color:var(--dsw-alias-label-tertiary);border:1px solid var(--dsw-alias-border-light);border-radius:4px;font-size:10px;line-height:14px;padding:0 4px;flex:0 0 auto}',
       '.ecp_legendDot{width:8px;height:8px;border-radius:2px;flex:0 0 auto}',
       '.ecp_legendLabel{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary)}',
       '.ecp_legendSize{font-family:var(--ds-font-family-code);color:var(--dsw-alias-label-tertiary);flex:0 0 auto}',
@@ -2028,6 +2031,7 @@ window.__ModuleLoader__.load({
           label: sessionName(entry.sessionId),
           bytes: Number(entry.bytes) || 0,
           records: Number(entry.records) || 0,
+          archived: entry.archived === true,
         })
       })
       if (pieSource.length > 7) {
@@ -2098,6 +2102,7 @@ window.__ModuleLoader__.load({
                 style: { background: PIE_COLORS[index % PIE_COLORS.length] },
               }),
               createElement('span', { key: 'label', className: 'ecp_legendLabel', title: entry.label }, entry.label),
+              entry.archived ? createElement('span', { key: 'archived', className: 'ecp_archivedTag' }, t('archived')) : null,
               createElement('span', { key: 'size', className: 'ecp_legendSize' }, formatSize(entry.bytes)),
               createElement('span', { key: 'pct', className: 'ecp_legendPct' }, format(t, 'storagePercent', percent)),
             ])

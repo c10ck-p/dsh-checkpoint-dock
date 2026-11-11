@@ -359,3 +359,20 @@ test('a sealed turn remembers the commit and a rename keeps its old path', async
   assert.equal(await fs.readFile(older, 'utf8'), 'content\n')
   await assert.rejects(fs.readFile(newer, 'utf8'), /ENOENT/)
 })
+
+test('the storage view marks checkpoints of archived sessions', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'kept.txt')
+  await fs.writeFile(file, 'one\n')
+
+  const store = new EditCheckpointStore(root, { archivedLookup: () => new Set(['session-d']) })
+  await store.capture({ sessionId: 'session-d', cwd, turn: 1, absolute: file, prompt: '' })
+  await fs.writeFile(file, 'two\n')
+  await store.seal('session-d', 1, 0)
+
+  const stats = await store.stats('*')
+  assert.equal(stats.bySession.length, 1)
+  assert.equal(stats.bySession[0].archived, true)
+})
