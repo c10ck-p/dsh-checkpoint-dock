@@ -25,7 +25,7 @@ DSH's built-in “edited N files” card tells you what a turn produced. This pl
 - **See the change in place**: expand a before/after diff inside the dock; a file row expands the patch it belongs to right here — DSH's changes-review panel reads its own snapshot and cannot show writes made outside the file tools, so the dock no longer hands off.
 - **Resident, but quiet**: the dock sits above the composer by default. Turn residency off and it appears only while a turn has unhandled file changes.
 - **Multiple sessions stay separate**: the overview in Settings groups checkpoints by DSH session title.
-- **No git dependency**: no repository, no commit, and `git gc` cannot make old checkpoints unreachable. Writes that bypass DSH's file tools are found by scanning the workspace once at the start and once at the end of a turn — so shell commands, scripts, and editors land in the checkpoint too.
+- **No git dependency**: no repository, no commit, and `git gc` cannot make old checkpoints unreachable. Writes that bypass DSH's file tools are found by comparing the workspace at the start and at the end of a turn — so shell commands, scripts, and editors land in the checkpoint too. When the workspace happens to be a git repository, only the paths `git status` reports are examined, which skips the full scan.
 - **Native DSH styling**: buttons, menus, colors, and the settings page use DSH theme tokens.
 
 ## How it compares
@@ -78,7 +78,7 @@ Uninstalling leaves existing checkpoints in place; the data stays in `$DSH_HOME/
 3. Use **Keep / Undo / Redo / Revert to here** to act on that turn.
 4. The welcome page shows no dock; once you send the first message the dock keeps a single collapsed row even if the turn changed no files, and expanding it says there are no checkpoints yet. To browse everything, open **Settings → Checkpoints → Overview**.
 
-A turn settles its files when it ends: the workspace is scanned once at the start and once at the end, and every difference between the two scans is recorded — so a file written by a shell command, a script, or an editor shows up in the checkpoint just like one written by DSH's own file tools.
+A turn settles its files when it ends: the workspace is compared at the start and at the end, and every difference is recorded — so a file written by a shell command, a script, or an editor shows up in the checkpoint just like one written by DSH's own file tools. In a git repository the comparison uses `git status` plus `git cat-file` and reads only the files that really changed; elsewhere the whole tree is scanned.
 
 When residency is off, the dock appears only while a turn has unhandled file changes and hides again once they are handled. Settings are stored per browser and shared across DSH ports on the same machine.
 
@@ -97,7 +97,7 @@ Checkpoints are numbered in session order, and the overview groups them by DSH s
 
 - Checkpoint data is stored in plain text under `$DSH_HOME/edit-checkpoints/` and includes the contents of changed files. Do not commit this directory or sync it to an untrusted location.
 - `.env*`, private keys, and `.ssh/.aws/.gnupg` are skipped by default. This is a conservative filter, not encryption, and not a replacement for secret management.
-- The turn-start/turn-end scan skips `.git`, `node_modules`, `.tmp`, and similar directories, caps a single file at 4 MiB, and stops at 4000 files or 32 MiB in total; a turn that exceeds the budget records only DSH file-tool writes.
+- Without git, the turn-start/turn-end scan skips `.git`, `node_modules`, `.tmp`, and similar directories, caps a single file at 4 MiB, and stops at 4000 files or 32 MiB in total; a turn that exceeds the budget records only DSH file-tool writes. With git, only the paths git reports are read, so ignored build output never enters the comparison.
 - The per-file limit is 4 MiB. Larger files are recorded with approximate line counts and are excluded from safe undo.
 - A damaged record file is renamed to `*.corrupt-<timestamp>` and isolated. Only that entry is lost; the rest of the session keeps working.
 - Deleting a session in DSH does not delete its checkpoints. Settings → Checkpoints → Storage lists them as deleted-session data and lets you decide when to clean up.
@@ -106,7 +106,7 @@ Checkpoints are numbered in session order, and the overview groups them by DSH s
 ## Limitations
 
 - Only files inside the current workspace are handled.
-- External writes are found by scanning the whole workspace, so a very large tree degrades: the turn that exceeds the budget records only DSH file-tool writes.
+- Without git, external writes are found by scanning the whole workspace, so a very large tree degrades: the turn that exceeds the budget records only DSH file-tool writes. In a git repository the cost follows the number of changed paths instead of the size of the tree.
 - Restores file bytes and permission bits; it does not restore mtime, directories, symlink targets, or `.git` metadata.
 - Undo / Revert are overwrite-style restores: files created outside the reverted turn are not deleted.
 - Cross-session protection is checked on Undo / Redo / Revert, not as a continuous file-edit lock. Two sessions can still write the same file concurrently; if the other session's write lands before this turn is sealed, this turn's after state may already contain it. Fully preventing that requires workspace-level write serialization.

@@ -7,6 +7,7 @@
 import os from 'node:os'
 import path from 'node:path'
 import { scanWorkspace, changedSince } from './lib/baseline.mjs'
+import { takeGitBaseline, gitChanges } from './lib/gitbase.mjs'
 import { EditCheckpointService } from './lib/service.mjs'
 import { EditCheckpointStore } from './lib/store.mjs'
 
@@ -128,10 +129,15 @@ export async function apply(ctx, config) {
   }
 
   /**
-   * Turn-start scans, keyed by session and turn. Each holds the content every
-   * file had before the turn wrote anything — the only way to name a write
-   * that never passed a `fs/*-intent` hook, and it needs no git repository.
-   * @type {Map<string, Promise<{files: Map<string, Buffer>, exceeded: boolean} | undefined>>}
+   * Turn-start snapshots, keyed by session and turn. Inside a git work tree the
+   * snapshot is git's own status plus the content of the paths that were
+   * already dirty; elsewhere the workspace is scanned. Either way it holds what
+   * the files looked like before the turn wrote anything — the only way to name
+   * a write that never passed a `fs/*-intent` hook.
+   * @type {Map<string, Promise<
+   *   {kind: 'git', root: string, top: string, head: string|null, dirty: Map<string, Buffer>} |
+   *   {kind: 'scan', scan: {files: Map<string, Buffer>, exceeded: boolean}} |
+   *   undefined>>}
    */
   const baselines = new Map()
 
@@ -139,24 +145,28 @@ export async function apply(ctx, config) {
   const baselineKey = (sessionId, turn) => `${sessionId}:${turn}`
 
   /**
-   * Read the workspace before the turn writes. A failed or oversized scan is
-   * not an error: that turn then records file-tool writes only, as it always
-   * did, instead of attributing unrelated diffs to the agent.
+   * Read the workspace before the turn writes. Git is preferred because it
+   * already knows which paths differ from HEAD, so only those bytes are read;
+   * without git the whole workspace is scanned under a budget. A failed
+   * snapshot is not an error: that turn then records file-tool writes only, as
+   * it always did, instead of attributing unrelated diffs to the agent.
    * @param {any} session @param {number} turn
    */
   const takeBaseline = (session, turn) => {
     const cwd = session.header?.cwd
     if (typeof cwd !== 'string' || cwd === '') return
-    const scan = scanWorkspace(cwd).catch((error) => {
-      warn(error)
-      return undefined
-    })
-    baselines.set(baselineKey(session.id, turn), scan)
+    const snapshot = takeGitBaseline(cwd)
+      .then((git) => (git === null ? scanWorkspace(cwd).then((scan) => ({ kind: 'scan', scan })) : git))
+      .catch((error) => {
+        warn(error)
+        return undefined
+      })
+    baselines.set(baselineKey(session.id, turn), snapshot)
   }
 
   /**
    * Record the paths a turn changed outside the file tools by comparing the
-   * workspace now against the turn-start scan. Both sides must be complete;
+   * workspace now against the turn-start snapshot. Both sides must be complete;
    * a path the file tools already recorded is left alone.
    * @param {any} session @param {number} turn
    */
@@ -166,20 +176,29 @@ export async function apply(ctx, config) {
     if (pending === undefined) return
     baselines.delete(key)
     const before = await pending
-    if (before === undefined || before.exceeded) return
+    if (before === undefined) return
+    if (before.kind === 'scan' && before.scan.exceeded) return
     const cwd = session.header?.cwd
     if (typeof cwd !== 'string' || cwd === '') return
-    const after = await scanWorkspace(cwd).catch(() => undefined)
-    if (after === undefined || after.exceeded) return
-    for (const change of changedSince(before, after)) {
-      const absolute = path.join(cwd, change.path)
-      if (isGitMetadata(cwd, absolute)) continue
-      if (await store.hasFile(session.id, turn, absolute)) continue
+    /** @type {{absolute: string, before: Buffer|null}[]} */
+    const changes = before.kind === 'git'
+      ? await gitChanges(before).catch(() => [])
+      : await (async () => {
+          const after = await scanWorkspace(cwd).catch(() => undefined)
+          if (after === undefined || after.exceeded) return []
+          return changedSince(before.scan, after).map((change) => ({
+            absolute: path.join(cwd, change.path),
+            before: change.before,
+          }))
+        })()
+    for (const change of changes) {
+      if (isGitMetadata(cwd, change.absolute)) continue
+      if (await store.hasFile(session.id, turn, change.absolute)) continue
       await store.capture({
         sessionId: session.id,
         cwd,
         turn,
-        absolute,
+        absolute: change.absolute,
         prompt: latestPrompt(session),
         before: change.before === null ? { exists: false, buffer: null } : { exists: true, buffer: change.before },
       })
