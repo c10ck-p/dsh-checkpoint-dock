@@ -129,11 +129,11 @@ export async function apply(ctx, config) {
   }
 
   /**
-   * Turn-start snapshots, keyed by session and turn. Inside a git work tree the
-   * snapshot is git's own status plus the content of the paths that were
-   * already dirty; elsewhere the workspace is scanned. Either way it holds what
-   * the files looked like before the turn wrote anything — the only way to name
-   * a write that never passed a `fs/*-intent` hook.
+   * Turn-start snapshots, keyed by session and turn. A snapshot holds what the
+   * files looked like before the turn wrote anything — the only way to name a
+   * write that never passed a `fs/*-intent` hook. Which shape it has depends on
+   * the tree: a whole-workspace scan for a small one, git's status plus the
+   * bytes of paths that were already dirty for a large one.
    * @type {Map<string, Promise<
    *   {kind: 'git', root: string, top: string, head: string|null, dirty: Map<string, Buffer>} |
    *   {kind: 'scan', scan: {files: Map<string, Buffer>, exceeded: boolean}} |
@@ -141,13 +141,37 @@ export async function apply(ctx, config) {
    */
   const baselines = new Map()
 
+  /**
+   * What the last scan of a working directory cost. Spawning git is not free
+   * (three processes, ~160 ms on Windows), so on a small tree reading every
+   * file beats asking git. The measurement decides: a directory is scanned
+   * until it proves big or slow, then git takes over.
+   * @type {Map<string, {files: number, ms: number}>}
+   */
+  const scanCost = new Map()
+
+  /** Above either threshold, asking git is cheaper than walking the tree. */
+  const SCAN_FILES_LIMIT = 1200
+  const SCAN_MS_LIMIT = 120
+
   /** @param {string} sessionId @param {number} turn */
   const baselineKey = (sessionId, turn) => `${sessionId}:${turn}`
 
   /**
-   * Read the workspace before the turn writes. Git is preferred because it
-   * already knows which paths differ from HEAD, so only those bytes are read;
-   * without git the whole workspace is scanned under a budget. A failed
+   * Scan and remember what it cost, so the next turn can pick the other path.
+   * @param {string} cwd
+   */
+  const scanAndRemember = async (cwd) => {
+    const started = Date.now()
+    const scan = await scanWorkspace(cwd)
+    scanCost.set(cwd, { files: scan.files.size, ms: Date.now() - started })
+    return { kind: 'scan', scan }
+  }
+
+  /**
+   * Read the workspace before the turn writes. A small tree is scanned; a big
+   * or slow one is read through git, which only reports the paths that differ
+   * from HEAD. Without a repository the scan is the only option. A failed
    * snapshot is not an error: that turn then records file-tool writes only, as
    * it always did, instead of attributing unrelated diffs to the agent.
    * @param {any} session @param {number} turn
@@ -155,8 +179,12 @@ export async function apply(ctx, config) {
   const takeBaseline = (session, turn) => {
     const cwd = session.header?.cwd
     if (typeof cwd !== 'string' || cwd === '') return
-    const snapshot = takeGitBaseline(cwd)
-      .then((git) => (git === null ? scanWorkspace(cwd).then((scan) => ({ kind: 'scan', scan })) : git))
+    const learned = scanCost.get(cwd)
+    const expensive = learned !== undefined && (learned.files > SCAN_FILES_LIMIT || learned.ms > SCAN_MS_LIMIT)
+    const scanned = () => scanAndRemember(cwd)
+    const snapshot = (expensive
+      ? takeGitBaseline(cwd).then((git) => (git === null ? scanned() : git))
+      : scanned())
       .catch((error) => {
         warn(error)
         return undefined
