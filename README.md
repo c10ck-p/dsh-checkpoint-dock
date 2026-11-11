@@ -52,6 +52,8 @@ DSH 自带的“已编辑 N 个文件”卡片负责告诉你这一轮产出了�
 
 要求 DSH `>= 0.2.2-rc.1`。包已发布在 npm：[dsh-checkpoint-dock](https://www.npmjs.com/package/dsh-checkpoint-dock)。
 
+在 DSH 里装（最省事）：打开**设置 → 插件**，点**添加插件**，输入 `dsh-checkpoint-dock` 即可。
+
 从 npm：
 
 ```powershell

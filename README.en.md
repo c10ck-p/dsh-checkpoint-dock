@@ -52,6 +52,8 @@ Snapshot-style tools are a better fit when you need workspace, config, or sessio
 
 Requires DSH `>= 0.2.2-rc.1`. Published on npm: [dsh-checkpoint-dock](https://www.npmjs.com/package/dsh-checkpoint-dock).
 
+Inside DSH (the easy way): open **Settings → Plugins**, click **Add plugin**, and enter `dsh-checkpoint-dock`.
+
 From npm:
 
 ```powershell
