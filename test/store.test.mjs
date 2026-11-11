@@ -572,3 +572,53 @@ test('a single redo leaves the revert batch for the rest', async () => {
   assert.equal(rest.ok, true, rest.message)
   assert.equal(rest.records, 1)
 })
+
+test('a restore interrupted by a crash is finished by the next store', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'a.txt')
+  const before = 'original\n'
+  await fs.writeFile(file, before)
+  const store = new EditCheckpointStore(root)
+  await store.capture({ sessionId: 'session-c', cwd, turn: 1, absolute: file, prompt: 'edit' })
+  await fs.writeFile(file, 'changed\n')
+  await store.seal('session-c', 1, 5)
+
+  const [record] = await store.loadAll('session-c')
+  const entry = record.files[0]
+  // Simulate a crash right after the journal was written and before any file
+  // was touched: the file still holds the after image.
+  await fs.writeFile(path.join(root, 'pending.json'), JSON.stringify({
+    version: 1,
+    time: Date.now(),
+    steps: [{ path: file, display: 'a.txt', mode: null, sha: entry.beforeSha }],
+    records: [{ sessionId: 'session-c', turn: 1, status: 'undone', undoneFrom: 'sealed', revertBatch: '', actionTime: Date.now() }],
+  }, null, 2))
+  assert.equal(await fs.readFile(file, 'utf8'), 'changed\n')
+
+  const next = new EditCheckpointStore(root)
+  // Any operation takes the lock, and the lock first finishes the journal.
+  const undone = await next.undo('session-c', 1)
+  assert.equal(undone.ok, true, undone.message)
+  assert.equal(await fs.readFile(file, 'utf8'), before)
+  assert.equal((await next.loadAll('session-c'))[0].status, 'undone')
+  await assert.rejects(fs.stat(path.join(root, 'pending.json')), { code: 'ENOENT' })
+})
+
+test('a finished restore leaves no journal behind', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'b.txt')
+  await fs.writeFile(file, 'one\n')
+  const store = new EditCheckpointStore(root)
+  await store.capture({ sessionId: 'session-j', cwd, turn: 1, absolute: file, prompt: 'edit' })
+  await fs.writeFile(file, 'two\n')
+  await store.seal('session-j', 1, 1)
+
+  assert.equal((await store.undo('session-j', 1)).ok, true)
+  await assert.rejects(fs.stat(path.join(root, 'pending.json')), { code: 'ENOENT' })
+  assert.equal((await store.redo('session-j', 1)).ok, true)
+  await assert.rejects(fs.stat(path.join(root, 'pending.json')), { code: 'ENOENT' })
+})

@@ -92,6 +92,7 @@ Checkpoints are numbered in session order, and the overview groups them by DSH s
 - Keeping the latest checkpoint also marks every earlier un-reverted checkpoint as kept.
 - Once a later checkpoint is kept, earlier checkpoints cannot be undone individually, even if the two turns touched different files. Use **Revert to here** for a whole-range rollback.
 - Undo / Redo / Revert verify each file's current hash first. If another tool or a manual edit changed the file, they report a conflict instead of overwriting it.
+- A multi-file restore writes an intent journal (`$DSH_HOME/edit-checkpoints/pending.json`) before touching any file. If the process dies halfway, the first operation of the next start finishes that restore, so the workspace never stays split between two turns and no restored file is left marked as sealed.
 - Redo only works from the earliest undone checkpoint forward. A newer active checkpoint blocks it.
 - Revert undoes every checkpoint after the target. Those records become undone and can be redone in order.
 

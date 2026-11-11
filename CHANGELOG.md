@@ -18,6 +18,8 @@
 
 ### Fixed
 
+- Undo, redo and revert are now crash-safe across the files of one operation: the intended end state is written to `pending.json` first, each file is then replaced, and the record is saved last. An interrupted run is finished by the next operation instead of leaving the workspace half restored or a restored file still marked as sealed.
+
 - Every gateway entry point now rejects a request whose turn is not a whole number and whose session id is not a string. The wire codecs are passthrough, so before this a client could pass a turn like `../x` and make a read resolve `<turn>.json` outside the records directory; the store's own path builder refuses such a turn as a second line of defence.
 
 - The sensitive-path filter now also covers `.npmrc`, `.yarnrc*`, `.pypirc`, `.git-credentials`, `kubeconfig`, `secrets.yaml/json`, `.docker/`, `*.keystore` and `*.kdbx`. A matching file still gets its path and hash recorded, but its contents stay out of the checkpoint.
