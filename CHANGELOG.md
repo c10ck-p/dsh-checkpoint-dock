@@ -4,7 +4,7 @@
 
 ### Added
 
-- Writes that bypass DSH's file tools — a shell command, a script, an editor — are now recorded too: the workspace is compared when a turn starts and when it ends, and every path that differs is added with its pre-image. A small tree is scanned as a whole; a large one (over 1200 files, or a scan slower than 120 ms) that is a git repository is compared through `git status`, `git cat-file`, and the content of files that were already dirty at turn start, because spawning git costs more than reading a few dozen files. No repository is required either way. The scan is bounded (it skips `.git`, `node_modules`, `.tmp` and similar, caps a file at 4 MiB, and stops at 4000 files / 32 MiB), so a huge tree degrades to file-tool writes for that turn instead of half-reporting.
+- Writes that bypass DSH's file tools — a shell command, a script, an editor — are now recorded too: the workspace is compared when a turn starts and when it ends, and every path that differs is added with its pre-image. A small tree is scanned as a whole; a large one (over 1200 files, or a scan slower than 120 ms) that is a git repository is compared through `git status`, one `git cat-file --batch` for every pre-image, and the content of files that were already dirty at turn start, because spawning git costs more than reading a few dozen files. No repository is required either way. The scan is bounded (it skips `.git`, `node_modules`, `.tmp` and similar, caps a file at 4 MiB, and stops at 4000 files / 32 MiB), so a huge tree degrades to file-tool writes for that turn instead of half-reporting.
 
 ### Changed
 

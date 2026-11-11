@@ -88,6 +88,20 @@ test('a file already dirty at turn start keeps the content it had then', async (
   assert.equal(changes[0].before.toString(), 'dirty before the turn\n')
 })
 
+test('several modified files all get their committed content', async () => {
+  const dir = await repo()
+  const names = ['a.txt', 'b.txt', 'c.txt', 'd.txt']
+  for (const name of names) await fs.writeFile(path.join(dir, name), `${name} before\n`)
+  await git(dir, 'add', '-A')
+  await git(dir, 'commit', '-q', '-m', 'base')
+  const baseline = await takeGitBaseline(dir)
+  for (const name of names) await fs.writeFile(path.join(dir, name), `${name} after\n`)
+  const changes = await gitChanges(baseline)
+  const byName = new Map(changes.map((change) => [path.basename(change.absolute), change.before.toString()]))
+  assert.equal(changes.length, names.length)
+  for (const name of names) assert.equal(byName.get(name), `${name} before\n`)
+})
+
 test('a deletion is reported with the content it had at turn start', async () => {
   const dir = await repo()
   await fs.writeFile(path.join(dir, 'a.txt'), 'one\n')
