@@ -477,3 +477,38 @@ test('a lost key makes content unavailable instead of unreadable garbage', async
   assert.match(String(undo.message), /key|密钥|encrypt/i)
   assert.equal(await fs.readFile(file, 'utf8'), 'two\n')
 })
+
+test('rotating the key keeps the blobs sealed by the previous one readable', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'a.txt')
+  await fs.writeFile(file, 'first\n')
+
+  const store = new EditCheckpointStore(root)
+  await store.setConfig({ encrypt: true })
+  await store.capture({ sessionId: 'session-h', cwd, turn: 1, absolute: file, prompt: '' })
+  await fs.writeFile(file, 'second\n')
+  await store.seal('session-h', 1, 0)
+  const before = await store.stats('session-h')
+
+  const rotated = await store.rotateKey()
+  assert.equal(rotated.ok, true, rotated.message)
+  assert.notEqual(rotated.fingerprint, before.crypto.fingerprint)
+  assert.equal(rotated.keys, 2)
+
+  // New content uses the new key; the old blob still opens.
+  await store.capture({ sessionId: 'session-h', cwd, turn: 2, absolute: file, prompt: '' })
+  await fs.writeFile(file, 'third\n')
+  await store.seal('session-h', 2, 0)
+
+  const undoTwo = await store.undo('session-h', 2)
+  assert.equal(undoTwo.ok, true, undoTwo.message)
+  const undoOne = await store.undo('session-h', 1)
+  assert.equal(undoOne.ok, true, undoOne.message)
+  assert.equal(await fs.readFile(file, 'utf8'), 'first\n')
+
+  const after = await store.stats('session-h')
+  assert.equal(after.crypto.keys, 2)
+  assert.equal(after.crypto.fingerprint, rotated.fingerprint)
+})

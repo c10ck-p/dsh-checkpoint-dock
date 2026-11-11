@@ -254,9 +254,13 @@ window.__ModuleLoader__.load({
         storageKeepOption: '{n} 条',
         cryptoTitle: '加密',
         cryptoOn: '加密检查点内容',
-        cryptoHint: '默认关闭。开启后新检查点立即加密，旧内容在后续轮次里逐步加密；密钥保存在检查点目录之外的 checkpoint-keys，重置密钥不会让旧内容失效，但密钥丢失后这些内容将无法查看。',
+        cryptoHint: '默认关闭。开启后新检查点立即加密，旧内容在后续轮次里逐步加密，并会在这里出现「重置密钥」。密钥保存在检查点目录之外的 checkpoint-keys：重置只是换一把新密钥，旧内容照样能读；但密钥全部丢失后这些内容将无法查看。',
         cryptoState: '已加密 {sealed}/{total} 条内容 · 当前密钥 {fingerprint}',
         cryptoKeys: '共 {n} 把密钥',
+        cryptoRotate: '重置密钥',
+        cryptoRotateConfirm: '确认用新密钥加密之后的内容',
+        cryptoRotated: '已生成新密钥 {fingerprint}，旧内容仍可读取',
+        cryptoOff: '先开启加密，才能重置密钥',
         contentRemoved: '内容已清理',
         recovered: '已恢复',
         diff: '查看所有变更',
@@ -374,9 +378,13 @@ window.__ModuleLoader__.load({
         storageKeepOption: '{n} records',
         cryptoTitle: 'Encryption',
         cryptoOn: 'Encrypt checkpoint content',
-        cryptoHint: 'Off by default. When on, new checkpoints are sealed at once and older content is encrypted in the background; keys live outside the checkpoint directory, so resetting a key keeps old content readable — but losing the keys makes it unreadable.',
+        cryptoHint: 'Off by default. When on, new checkpoints are sealed at once, older content is encrypted in the background, and a Rotate key button appears here. Keys live outside the checkpoint directory: rotating only mints a new key and keeps old content readable — losing every key makes it unreadable.',
         cryptoState: '{sealed}/{total} blobs encrypted · key {fingerprint}',
         cryptoKeys: '{n} keys on disk',
+        cryptoRotate: 'Rotate key',
+        cryptoRotateConfirm: 'Confirm sealing new content with a fresh key',
+        cryptoRotated: 'New key {fingerprint}; older content stays readable',
+        cryptoOff: 'Turn encryption on before rotating the key',
         contentRemoved: 'Content cleaned',
         recovered: 'Recovered',
         diff: 'View all changes',
@@ -1642,6 +1650,9 @@ window.__ModuleLoader__.load({
       var purgeConfirmState = useState(false)
       var purgeConfirm = purgeConfirmState[0]
       var setPurgeConfirm = purgeConfirmState[1]
+      var rotateConfirmState = useState(false)
+      var rotateConfirm = rotateConfirmState[0]
+      var setRotateConfirm = rotateConfirmState[1]
       var keepOpenState = useState(false)
       var keepOpen = keepOpenState[0]
       var setKeepOpen = keepOpenState[1]
@@ -1751,6 +1762,12 @@ window.__ModuleLoader__.load({
         return function () { clearTimeout(timer) }
       }, [purgeConfirm])
 
+      useEffect(function () {
+        if (!rotateConfirm) return undefined
+        var timer = setTimeout(function () { setRotateConfirm(false) }, 4000)
+        return function () { clearTimeout(timer) }
+      }, [rotateConfirm])
+
       var runClean = function () {
         if (cleanConfirm !== true) {
           setCleanConfirm(true)
@@ -1767,6 +1784,26 @@ window.__ModuleLoader__.load({
           if ((result.records || 0) === 0) setError(t('cleanNothing'))
           loadStats()
           loadHistory()
+        }).catch(function (failure) {
+          setError(failure && failure.message ? failure.message : t('actionFailed'))
+        }).finally(function () { setStorageBusy('') })
+      }
+
+      var runRotate = function () {
+        if (rotateConfirm !== true) {
+          setRotateConfirm(true)
+          return
+        }
+        setRotateConfirm(false)
+        setStorageBusy('rotate')
+        setError('')
+        api.rotateKey().then(function (result) {
+          if (!result || result.ok !== true) {
+            setError(result && result.message ? result.message : t('actionFailed'))
+            return
+          }
+          setError(fill(t, 'cryptoRotated', { fingerprint: result.fingerprint || '—' }))
+          loadStats()
         }).catch(function (failure) {
           setError(failure && failure.message ? failure.message : t('actionFailed'))
         }).finally(function () { setStorageBusy('') })
@@ -2249,7 +2286,20 @@ window.__ModuleLoader__.load({
                   sealed: stats.crypto.sealed || 0,
                   total: stats.crypto.total || 0,
                   fingerprint: stats.crypto.fingerprint || '—',
-                }) + (stats.crypto.keys > 1 ? ' · ' + fill(t, 'cryptoKeys', { n: stats.crypto.keys }) : ''))
+                }))
+              : null,
+            stats.crypto && stats.crypto.enabled
+              ? createElement('div', { key: 'actions', className: 'ecp_storageRow' }, [
+                createElement('span', { key: 'keys', className: 'ecp_storageCleanable' },
+                  fill(t, 'cryptoKeys', { n: stats.crypto.keys || 1 })),
+                createElement('button', {
+                  key: 'rotate',
+                  type: 'button',
+                  className: 'ecp_btn' + (rotateConfirm ? ' is-confirm' : ''),
+                  disabled: storageBusy !== '',
+                  onClick: runRotate,
+                }, rotateConfirm ? t('cryptoRotateConfirm') : t('cryptoRotate')),
+              ])
               : null,
           ]),
         ])
@@ -2365,6 +2415,7 @@ window.__ModuleLoader__.load({
         // the whole store: `*` is the same sentinel the history page uses.
         statsAll: function () { return call('get', '*', -999999) },
         cleanAll: function () { return call('undo', '*', -999999) },
+        rotateKey: function () { return call('undo', 'key', -999995) },
       }
 
       var openReview = function (coordinates, index) {
