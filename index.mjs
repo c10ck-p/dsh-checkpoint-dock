@@ -6,8 +6,8 @@
 
 import os from 'node:os'
 import path from 'node:path'
-import { scanWorkspace, changedSince } from './lib/baseline.mjs'
-import { takeGitBaseline, gitChanges } from './lib/gitbase.mjs'
+import { scanWorkspace, changedSince, pairRenames } from './lib/baseline.mjs'
+import { takeGitBaseline, gitChanges, gitHead } from './lib/gitbase.mjs'
 import { EditCheckpointService } from './lib/service.mjs'
 import { EditCheckpointStore } from './lib/store.mjs'
 
@@ -208,7 +208,7 @@ export async function apply(ctx, config) {
     if (before.kind === 'scan' && before.scan.exceeded) return
     const cwd = session.header?.cwd
     if (typeof cwd !== 'string' || cwd === '') return
-    /** @type {{absolute: string, before: Buffer|null}[]} */
+    /** @type {{absolute: string, before: Buffer|null, after: Buffer|null, renamedFrom?: string}[]} */
     const changes = before.kind === 'git'
       ? await gitChanges(before).catch(() => [])
       : await (async () => {
@@ -217,8 +217,10 @@ export async function apply(ctx, config) {
           return changedSince(before.scan, after).map((change) => ({
             absolute: path.join(cwd, change.path),
             before: change.before,
+            after: change.after,
           }))
         })()
+    pairRenames(changes)
     for (const change of changes) {
       if (isGitMetadata(cwd, change.absolute)) continue
       if (await store.hasFile(session.id, turn, change.absolute)) continue
@@ -229,6 +231,7 @@ export async function apply(ctx, config) {
         absolute: change.absolute,
         prompt: latestPrompt(session),
         before: change.before === null ? { exists: false, buffer: null } : { exists: true, buffer: change.before },
+        renamedFrom: change.renamedFrom ?? '',
       })
     }
   }
@@ -286,7 +289,13 @@ export async function apply(ctx, config) {
     const work = (async () => {
       await store.noteSeq(session.id, turn, seq)
       await captureExternal(session, turn)
-      await store.seal(session.id, turn, seq)
+      // Tie the checkpoint to the commit the turn produced, when there is one.
+      // A repository that never commits simply leaves the field empty.
+      const cwd = session.header?.cwd
+      const commit = typeof cwd === 'string' && cwd !== ''
+        ? await gitHead(cwd).catch(() => null)
+        : null
+      await store.seal(session.id, turn, seq, commit ?? '')
       // Cleanup runs at the turn boundary, never mid-turn: the user's "keep N"
       // setting is applied once the record is sealed and nothing is being
       // written into it any more.

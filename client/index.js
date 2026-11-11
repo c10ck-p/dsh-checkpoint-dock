@@ -429,6 +429,7 @@ window.__ModuleLoader__.load({
       '.ecp_revert.is-confirm{color:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary)}',
       '.ecp_error{color:var(--dsw-alias-state-error-primary);border-top:.5px solid var(--dsw-alias-border-l1);padding:5px 12px;font-size:11px;line-height:16px}',
       '.ecp_pinPill{color:var(--dsw-alias-state-business-primary);font-size:10px;font-family:var(--ds-font-family);margin-left:6px}',
+      '.ecp_renamed{color:var(--dsw-alias-label-tertiary);font-size:10px;font-family:var(--ds-font-family);margin-left:6px;flex:0 0 auto}',
       '.ecp_diff{border-top:.5px solid var(--dsw-alias-border-l1);max-height:260px;overflow:auto;overscroll-behavior:contain;background:var(--dsw-alias-bg-layer-2)}',
       '.ecp_diffFile{padding:6px 12px;border-bottom:.5px solid var(--dsw-alias-border-l1)}',
       '.ecp_diffFile.is-focus{box-shadow:inset 2px 0 0 var(--dsw-alias-state-business-primary,var(--dsw-alias-label-primary))}',
@@ -874,8 +875,15 @@ window.__ModuleLoader__.load({
       var recording = selectedStatus === 'open'
       var sealed = selectedStatus === 'sealed'
       var files = Array.isArray(selected.files) ? selected.files : []
-      var visibleFiles = showAllFiles ? files : files.slice(0, 4)
-      var hiddenFiles = files.length - visibleFiles.length
+      // A rename is recorded as two entries (the old path deleted, the new path
+      // created) so undo stays exact; the list shows it as one row.
+      var renameSources = new Set()
+      for (var renameIndex = 0; renameIndex < files.length; renameIndex += 1) {
+        if (files[renameIndex].renamedFrom) renameSources.add(files[renameIndex].renamedFrom)
+      }
+      var listedFiles = files.filter(function (file) { return !renameSources.has(file.path) })
+      var visibleFiles = showAllFiles ? listedFiles : listedFiles.slice(0, 4)
+      var hiddenFiles = listedFiles.length - visibleFiles.length
       var confirming = confirmTurn === selected.turn
 
       // Undo only moves one checkpoint back. A later checkpoint that still owns
@@ -1324,6 +1332,9 @@ window.__ModuleLoader__.load({
         }, [
           createElement('span', { key: 'e', className: 'ecp_ext' }, extensionOf(file.path)),
           createElement('span', { key: 'p', className: 'ecp_filePath' }, file.path),
+          file.renamedFrom
+            ? createElement('span', { key: 'r', className: 'ecp_renamed', title: file.renamedFrom }, '← ' + file.renamedFrom)
+            : null,
           createElement('span', { key: 'c', className: 'ecp_fileCounts' },
             file.binary
               ? createElement('span', { key: 'b' }, t('binary'))
@@ -1363,6 +1374,7 @@ window.__ModuleLoader__.load({
               format(t, 'title', ordinalOf(record)),
               record.recovered ? createElement('span', { key: 'rec', className: 'ecp_status' }, t('recovered')) : null,
               record.pinned ? createElement('span', { key: 'pin', className: 'ecp_pinPill' }, t('pinned')) : null,
+              record.commit ? createElement('span', { key: 'commit', className: 'ecp_status', title: record.commit }, record.commit.slice(0, 7)) : null,
             ]),
             createElement('span', { key: 'prompt', className: 'ecp_cpPrompt', title: record.prompt || '' },
               record.prompt || t('defaultPrompt')),
@@ -1843,6 +1855,7 @@ window.__ModuleLoader__.load({
               createElement('span', { key: 'status', className: 'ecp_histStatus' }, statusText(record)),
               createElement('span', { key: 'session', className: 'ecp_sessionTag' }, sessionLabel(record)),
               record.pinned ? createElement('span', { key: 'pin', className: 'ecp_pinPill' }, t('pinned')) : null,
+              record.commit ? createElement('span', { key: 'commit', className: 'ecp_status', title: record.commit }, record.commit.slice(0, 7)) : null,
             ]),
             createElement('div', { key: 'prompt', className: 'ecp_histPrompt' }, record.prompt || t('defaultPrompt')),
             createElement('div', { key: 'meta', className: 'ecp_histMeta' }, [

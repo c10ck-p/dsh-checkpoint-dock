@@ -25,7 +25,7 @@ DSH's built-in “edited N files” card tells you what a turn produced. This pl
 - **See the change in place**: expand a before/after diff inside the dock; a file row expands the patch it belongs to right here — DSH's changes-review panel reads its own snapshot and cannot show writes made outside the file tools, so the dock no longer hands off.
 - **Resident, but quiet**: the dock sits above the composer by default. Turn residency off and it appears only while a turn has unhandled file changes.
 - **Multiple sessions stay separate**: the overview in Settings groups checkpoints by DSH session title.
-- **No git dependency**: no repository, no commit, and `git gc` cannot make old checkpoints unreachable. Writes that bypass DSH's file tools are found by comparing the workspace at the start and at the end of a turn — so shell commands, scripts, and editors land in the checkpoint too. A small tree is simply scanned; a large tree that happens to be a git repository is read through `git status`, which skips the full scan.
+- **No git dependency**: no repository, no commit, and `git gc` cannot make old checkpoints unreachable. Writes that bypass DSH's file tools are found by comparing the workspace at the start and at the end of a turn — so shell commands, scripts, and editors land in the checkpoint too. A small tree is simply scanned; a large tree that happens to be a git repository is read through `git status`, which skips the full scan. Inside a repository the checkpoint also keeps the short HEAD hash at turn end, and a rename is shown as one row (`new ← old`) instead of a delete plus a create.
 - **Native DSH styling**: buttons, menus, colors, and the settings page use DSH theme tokens.
 
 ## How it compares

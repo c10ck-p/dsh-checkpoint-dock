@@ -11,7 +11,7 @@ import test from 'node:test'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
-import { scanWorkspace, changedSince } from '../lib/baseline.mjs'
+import { scanWorkspace, changedSince, pairRenames } from '../lib/baseline.mjs'
 
 // Some sandboxes deny writes to the OS temp directory, so the tests keep their
 // scratch space next to the package and clean it up afterwards.
@@ -100,4 +100,23 @@ test('passing the file budget is reported instead of half-scanning', async () =>
   }
   const scan = await scanWorkspace(root, { maxFiles: 3 })
   assert.equal(scan.exceeded, true)
+})
+
+test('a moved file is named as one rename instead of a delete plus a create', () => {
+  const changes = pairRenames([
+    { absolute: 'D:/w/a.txt', before: Buffer.from('same\n'), after: null },
+    { absolute: 'D:/w/b.txt', before: null, after: Buffer.from('same\n') },
+    { absolute: 'D:/w/c.txt', before: null, after: Buffer.from('other\n') },
+  ])
+  assert.equal(changes[1].renamedFrom, 'D:/w/a.txt')
+  assert.equal(changes[2].renamedFrom, undefined)
+  assert.equal(changes.length, 3, 'the deletion is kept so undo can restore it')
+})
+
+test('a moved file whose bytes changed is not called a rename', () => {
+  const changes = pairRenames([
+    { absolute: 'D:/w/a.txt', before: Buffer.from('old\n'), after: null },
+    { absolute: 'D:/w/b.txt', before: null, after: Buffer.from('new\n') },
+  ])
+  assert.equal(changes[1].renamedFrom, undefined)
 })

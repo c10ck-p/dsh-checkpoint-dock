@@ -124,3 +124,20 @@ test('a path that ends the turn unchanged is not reported', async () => {
   await fs.writeFile(path.join(dir, 'a.txt'), 'one\n')
   assert.deepEqual(await gitChanges(baseline), [])
 })
+
+test('a staged rename names the path it came from', async () => {
+  const dir = await repo()
+  await fs.writeFile(path.join(dir, 'a.txt'), 'one\n')
+  await git(dir, 'add', '-A')
+  await git(dir, 'commit', '-q', '-m', 'one')
+  const baseline = await takeGitBaseline(dir)
+  await git(dir, 'mv', 'a.txt', 'b.txt')
+
+  const changes = await gitChanges(baseline)
+  const older = changes.find((change) => change.absolute.endsWith('a.txt'))
+  const newer = changes.find((change) => change.absolute.endsWith('b.txt'))
+  assert.ok(older !== undefined, 'the deleted path is still reported')
+  assert.ok(newer !== undefined, 'the created path is reported')
+  assert.equal(newer.renamedFrom, older.absolute)
+  assert.equal(older.before.toString(), 'one\n')
+})
