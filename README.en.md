@@ -25,7 +25,7 @@ DSH's built-in “edited N files” card tells you what a turn produced. This pl
 - **See the change in place**: expand a before/after diff inside the dock; file rows still open DSH's changes-review sidebar.
 - **Resident, but quiet**: the dock sits above the composer by default. Turn residency off and it appears only while a turn has unhandled file changes.
 - **Multiple sessions stay separate**: the overview in Settings groups checkpoints by DSH session title.
-- **No git dependency**: no repository, no commit, no `git gc` making old checkpoints unreachable.
+- **Git-free at heart**: no repository and no commit are needed, and `git gc` cannot make old checkpoints unreachable. When the workspace does happen to be a git repository, the end of a turn also borrows DSH's own snapshot comparison to record files written by shells, scripts, and editors — an optional bonus, not a prerequisite.
 - **Native DSH styling**: buttons, menus, colors, and the settings page use DSH theme tokens.
 
 ## How it compares
@@ -38,10 +38,10 @@ DSH's built-in “edited N files” card tells you what a turn produced. This pl
 | Diff | Inline before/after | Tree diff in panel | Snapshot diff in panel | Any two checkpoints |
 | Restore | Keep / Undo / Redo / Revert here | `/rewind`, selective restore | File rollback + conversation fork | Rollback (via rewind) |
 | Conversation / config restore | No | Yes | Conversation | No |
-| Git dependency | None | git or copy mode | None | Inherited from rewind |
+| Git dependency | None for the core; git repos also record external writes | git or copy mode | None | Inherited from rewind |
 | Best for | Day-to-day file edits | Whole three-state rollback | Broad snapshot rollback | Inspecting historical diffs |
 
-Snapshot-style tools are a better fit when you need workspace, config, or session coverage. This plugin takes a different path: **small, fast, and file-focused**. No whole-workspace copy, no conversation fork, no config restore, no git. The trade-off is that it covers file contents only, not session state.
+Snapshot-style tools are a better fit when you need workspace, config, or session coverage. This plugin takes a different path: **small, fast, and file-focused**. No whole-workspace copy, no conversation fork, no config restore; checkpoints themselves need no git, and only a git workspace lends its snapshot so external writes can be added. The trade-off is that it covers file contents only, not session state.
 
 ## Install
 
@@ -106,6 +106,7 @@ Checkpoints are numbered in session order, and the overview groups them by DSH s
 ## Limitations
 
 - Only files inside the current workspace are handled.
+- DSH's file tools are always recorded; writes that bypass them (shell commands, scripts, editor saves) are added at the end of a turn only when the workspace is a git repository. In a non-git workspace they do not appear in a checkpoint at all.
 - Restores file bytes and permission bits; it does not restore mtime, directories, symlink targets, or `.git` metadata.
 - Undo / Revert are overwrite-style restores: files created outside the reverted turn are not deleted.
 - Cross-session protection is checked on Undo / Redo / Revert, not as a continuous file-edit lock. Two sessions can still write the same file concurrently; if the other session's write lands before this turn is sealed, this turn's after state may already contain it. Fully preventing that requires workspace-level write serialization.
