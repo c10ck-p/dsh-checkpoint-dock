@@ -68,7 +68,7 @@ dsh plugin --profile desktop add D:\\path\\to\\dsh-checkpoint-dock
 
 也可以在插件页选择本地 bundle。装完刷新页面就能看到 dock。
 
-插件由 Host 侧代码（`index.mjs`、`lib/`）和客户端代码（`client/index.js`）两半组成：**首次安装或升级后重启一次 DSH**，Host 侧才会加载新代码；只刷新页面只更新客户端那一半。升级后如果 dock 突然不见，多半是 Host 插件 import 失败，可以看 `$DSH_HOME/unlag-reload.log`（装了 dsh-unlag 的话）或 DSH 日志里 `checkpoint-dock` 的报错。
+插件由 Host 侧代码（`index.mjs`、`lib/`）和客户端代码（`client/index.js`）两半组成：**首次安装或升级后重启一次 DSH**，Host 侧才会加载新代码；只刷新页面只更新客户端那一半。升级后如果 dock 突然不见，多半是 Host 插件 import 失败，可以在 DSH 日志里搜 `checkpoint-dock` 的报错。
 
 卸载：
 

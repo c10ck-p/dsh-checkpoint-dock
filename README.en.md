@@ -68,7 +68,7 @@ dsh plugin --profile desktop add D:\\path\\to\\dsh-checkpoint-dock
 
 You can also pick the local bundle from the Plugins page. Refresh the page afterwards and the dock shows up.
 
-The plugin ships two halves: Host code (`index.mjs`, `lib/`) and client code (`client/index.js`). **Restart DSH once after the first install or an upgrade** so the Host half picks up the new code; a page refresh only reloads the client half. If the dock disappears right after an upgrade, the Host plugin probably failed to import — check `$DSH_HOME/unlag-reload.log` (when dsh-unlag is installed) or the `checkpoint-dock` errors in the DSH log.
+The plugin ships two halves: Host code (`index.mjs`, `lib/`) and client code (`client/index.js`). **Restart DSH once after the first install or an upgrade** so the Host half picks up the new code; a page refresh only reloads the client half. If the dock disappears right after an upgrade, the Host plugin probably failed to import — look for the `checkpoint-dock` error in the DSH log.
 
 Uninstall:
 
