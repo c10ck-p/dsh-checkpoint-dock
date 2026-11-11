@@ -2037,11 +2037,13 @@ window.__ModuleLoader__.load({
       if (pieSource.length > 7) {
         var restBytes = 0
         var restRecords = 0
+        var restArchived = false
         pieSource.slice(7).forEach(function (entry) {
           restBytes += Number(entry.bytes) || 0
           restRecords += Number(entry.records) || 0
+          if (entry.archived === true) restArchived = true
         })
-        pieEntries.push({ id: '__rest', label: t('storageOther'), bytes: restBytes, records: restRecords })
+        pieEntries.push({ id: '__rest', label: t('storageOther'), bytes: restBytes, records: restRecords, archived: restArchived })
       }
       var chart = null
       if (stats !== null) {

@@ -112,7 +112,9 @@ export async function apply(ctx, config) {
       try {
         const registry = ctx.get('workspaceRegistry')
         const ids = registry?.archivedSessionIds
-        return ids instanceof Set ? ids : new Set()
+        if (Array.isArray(ids)) return new Set(ids)
+        if (ids instanceof Set) return ids
+        return new Set()
       } catch {
         return new Set()
       }
