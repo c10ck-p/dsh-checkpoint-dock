@@ -1311,9 +1311,15 @@ window.__ModuleLoader__.load({
         })
       }
 
+      // With a single changed file, expanding that row already shows every
+      // change of the turn; the header button then collapses instead of
+      // repeating the same view under a second name.
+      var allFilesShown = showDiff || (diffFocus !== '' && listedFiles.length <= 1)
+
       var toggleAllDiff = function () {
-        if (showDiff) {
+        if (allFilesShown) {
           setShowDiff(false)
+          setDiffFocus('')
           return
         }
         setDiffFocus('')
@@ -1650,10 +1656,10 @@ window.__ModuleLoader__.load({
             createElement('button', {
               key: 'diff',
               type: 'button',
-              className: 'ecp_btn' + (showDiff ? ' ecp_keep' : ''),
+              className: 'ecp_btn' + (allFilesShown ? ' ecp_keep' : ''),
               disabled: busy !== '' || !diffAvailable,
               onClick: toggleAllDiff,
-            }, showDiff ? t('hideDiff') : t('diff')),
+            }, allFilesShown ? t('hideDiff') : t('diff')),
           ]),
         ]),
         error === '' ? null : createElement('div', { key: 'error', className: 'ecp_error' }, error),
