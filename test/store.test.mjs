@@ -201,7 +201,7 @@ test('settings are clamped, persisted and shared by later instances', async () =
   // A second store (a restarted Host) reads the same answer from disk.
   const reopened = new EditCheckpointStore(root)
   const config = await reopened.readConfig()
-  assert.deepEqual(config, { autoClean: true, keep: 12 })
+  assert.deepEqual(config, { autoClean: true, keep: 12, encrypt: false })
 
   // The panel reads these back through stats().
   const stats = await reopened.stats('session-empty')
@@ -395,4 +395,85 @@ test('a turn that is not a whole number never becomes a file path', () => {
   assert.throws(() => store.recordFile('session-a', -1), /invalid checkpoint turn/)
   assert.throws(() => store.recordFile('session-a', 1.5), /invalid checkpoint turn/)
   assert.match(store.recordFile('session-a', 7), /7\.json$/)
+})
+
+test('with encryption on, blobs are sealed and undo still restores', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'secret.txt')
+  const before = 'api_key = "one"\n'
+  await fs.writeFile(file, before)
+
+  const store = new EditCheckpointStore(root)
+  await store.setConfig({ encrypt: true })
+  await store.capture({ sessionId: 'session-e', cwd, turn: 1, absolute: file, prompt: '' })
+  await fs.writeFile(file, 'api_key = "two"\n')
+  await store.seal('session-e', 1, 0)
+
+  const buckets = await fs.readdir(path.join(root, 'blobs'))
+  const names = []
+  for (const bucket of buckets) {
+    for (const name of await fs.readdir(path.join(root, 'blobs', bucket))) names.push(name)
+  }
+  assert.equal(names.length > 0, true)
+  assert.equal(names.every((name) => name.endsWith('.dsc')), true)
+
+  const undo = await store.undo('session-e', 1)
+  assert.equal(undo.ok, true, undo.message)
+  assert.equal(await fs.readFile(file, 'utf8'), before)
+
+  const stats = await store.stats('session-e')
+  assert.equal(stats.crypto.enabled, true)
+  assert.equal(stats.crypto.sealed, stats.crypto.total)
+  assert.match(stats.crypto.fingerprint, /^[0-9a-f]{8}$/)
+})
+
+test('turning encryption on seals the blobs that were already stored', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'a.txt')
+  await fs.writeFile(file, 'plain\n')
+
+  const store = new EditCheckpointStore(root)
+  await store.capture({ sessionId: 'session-f', cwd, turn: 1, absolute: file, prompt: '' })
+  await fs.writeFile(file, 'still plain\n')
+  await store.seal('session-f', 1, 0)
+
+  const plainBefore = await store.stats('session-f')
+  assert.equal(plainBefore.crypto.sealed, 0)
+  assert.equal(plainBefore.crypto.total > 0, true)
+
+  await store.setConfig({ encrypt: true })
+  const migrated = await store.migrateBlobs(100)
+  assert.equal(migrated.sealed > 0, true)
+
+  const after = await store.stats('session-f')
+  assert.equal(after.crypto.sealed, after.crypto.total)
+
+  const undo = await store.undo('session-f', 1)
+  assert.equal(undo.ok, true, undo.message)
+  assert.equal(await fs.readFile(file, 'utf8'), 'plain\n')
+})
+
+test('a lost key makes content unavailable instead of unreadable garbage', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'a.txt')
+  await fs.writeFile(file, 'one\n')
+
+  const store = new EditCheckpointStore(root)
+  await store.setConfig({ encrypt: true })
+  await store.capture({ sessionId: 'session-g', cwd, turn: 1, absolute: file, prompt: '' })
+  await fs.writeFile(file, 'two\n')
+  await store.seal('session-g', 1, 0)
+
+  await fs.rm(path.join(home, 'checkpoint-keys'), { recursive: true, force: true })
+  const fresh = new EditCheckpointStore(root)
+  const undo = await fresh.undo('session-g', 1)
+  assert.equal(undo.ok, false)
+  assert.match(String(undo.message), /key|密钥|encrypt/i)
+  assert.equal(await fs.readFile(file, 'utf8'), 'two\n')
 })

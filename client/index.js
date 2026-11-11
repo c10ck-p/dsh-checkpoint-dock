@@ -252,6 +252,11 @@ window.__ModuleLoader__.load({
         storageAutoClean: '自动清理检查点',
         storageKeep: '保留最近',
         storageKeepOption: '{n} 条',
+        cryptoTitle: '加密',
+        cryptoOn: '加密检查点内容',
+        cryptoHint: '默认关闭。开启后新检查点立即加密，旧内容在后续轮次里逐步加密；密钥保存在检查点目录之外的 checkpoint-keys，重置密钥不会让旧内容失效，但密钥丢失后这些内容将无法查看。',
+        cryptoState: '已加密 {sealed}/{total} 条内容 · 当前密钥 {fingerprint}',
+        cryptoKeys: '共 {n} 把密钥',
         contentRemoved: '内容已清理',
         recovered: '已恢复',
         diff: '查看所有变更',
@@ -367,6 +372,11 @@ window.__ModuleLoader__.load({
         storageAutoClean: 'Clean up automatically',
         storageKeep: 'Keep the latest',
         storageKeepOption: '{n} records',
+        cryptoTitle: 'Encryption',
+        cryptoOn: 'Encrypt checkpoint content',
+        cryptoHint: 'Off by default. When on, new checkpoints are sealed at once and older content is encrypted in the background; keys live outside the checkpoint directory, so resetting a key keeps old content readable — but losing the keys makes it unreadable.',
+        cryptoState: '{sealed}/{total} blobs encrypted · key {fingerprint}',
+        cryptoKeys: '{n} keys on disk',
         contentRemoved: 'Content cleaned',
         recovered: 'Recovered',
         diff: 'View all changes',
@@ -455,6 +465,8 @@ window.__ModuleLoader__.load({
       '.ecp_settingsDivider{height:1px;background:var(--dsw-alias-border-l1);margin:14px 0}',
       '.ecp_settings .ecp_settingsSection{font-size:12px !important;font-weight:600;line-height:18px;color:var(--dsw-alias-label-primary);margin-bottom:6px}',
       '.ecp_cleanup{border-top:.5px solid var(--dsw-alias-border-l1);padding-top:12px;margin-top:2px}',
+      '.ecp_crypto{border-top:.5px solid var(--dsw-alias-border-l1);padding-top:12px;margin-top:12px}',
+      '.ecp_settings .ecp_crypto .ecp_settingsHint{font-size:11px !important;line-height:16px;margin:4px 0 6px}',
       '.ecp_settings .ecp_cleanup{font-size:11px !important;line-height:17px;color:var(--dsw-alias-label-secondary)}',
       '.ecp_settings .ecp_cleanup .ecp_settingsHint{font-size:11px !important;line-height:16px;margin:4px 0 6px}',
       '.ecp_chart{display:flex;align-items:center;gap:18px;margin:10px 0 6px;flex-wrap:wrap}',
@@ -1796,6 +1808,14 @@ window.__ModuleLoader__.load({
             for (var key in current) next[key] = current[key]
             next.autoClean = result.autoClean === true
             next.keepRecent = result.keep
+            // The switch must move under the cursor before the next poll lands.
+            next.crypto = {
+              enabled: result.encrypt === true,
+              fingerprint: (current.crypto && current.crypto.fingerprint) || '',
+              keys: (current.crypto && current.crypto.keys) || 0,
+              sealed: (current.crypto && current.crypto.sealed) || 0,
+              total: (current.crypto && current.crypto.total) || 0,
+            }
             return next
           })
           loadStats()
@@ -2209,6 +2229,29 @@ window.__ModuleLoader__.load({
               onClick: runPurge,
             }, purgeConfirm ? t('confirmPurge') : t('purgeOrphans')),
           ]) : null,
+          createElement('div', { key: 'crypto', className: 'ecp_crypto' }, [
+            createElement('div', { key: 'title', className: 'ecp_settingsSection' }, t('cryptoTitle')),
+            createElement('label', { key: 'toggle', className: 'ecp_storageToggle' }, [
+              createElement('input', {
+                key: 'box',
+                type: 'checkbox',
+                className: 'ecp_storageCheck',
+                checked: stats.crypto && stats.crypto.enabled === true,
+                disabled: storageBusy !== '',
+                onChange: function (event) { saveConfig({ encrypt: event.target.checked === true }) },
+              }),
+              createElement('span', { key: 'text' }, t('cryptoOn')),
+            ]),
+            createElement('div', { key: 'hint', className: 'ecp_settingsHint' }, t('cryptoHint')),
+            stats.crypto && stats.crypto.enabled
+              ? createElement('div', { key: 'state', className: 'ecp_storageHint' },
+                fill(t, 'cryptoState', {
+                  sealed: stats.crypto.sealed || 0,
+                  total: stats.crypto.total || 0,
+                  fingerprint: stats.crypto.fingerprint || '—',
+                }) + (stats.crypto.keys > 1 ? ' · ' + fill(t, 'cryptoKeys', { n: stats.crypto.keys }) : ''))
+              : null,
+          ]),
         ])
       }
 
