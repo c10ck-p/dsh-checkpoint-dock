@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/dsh-checkpoint-dock"><img alt="npm 0.1.1" src="docs/badge-npm.svg"></a>
+  <a href="https://www.npmjs.com/package/dsh-checkpoint-dock"><img alt="npm 0.2.0" src="docs/badge-npm.svg"></a>
   <img alt="DSH >= 0.2.2-rc.1" src="docs/badge-dsh.svg">
   <a href="LICENSE"><img alt="MIT License" src="docs/badge-license.svg"></a>
 </p>
