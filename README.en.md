@@ -22,6 +22,7 @@ DSH's built-in “edited N files” card tells you what a turn produced. This pl
 
 - **Per-turn, per-file checkpoints**: each checkpoint stores only the files that turn actually changed — no conversation copies, no whole-workspace snapshots.
 - **A complete undo path**: Keep → Undo → Redo → Revert to here. Accept a turn, go back to before it, reapply it, or roll all the way back to an older turn.
+- **Reverts are reversible too**: after a revert the dock keeps a row offering to redo that batch in order; checkpoints you already redid by hand are left out of it.
 - **See the change in place**: expand a before/after diff inside the dock; a file row expands the patch it belongs to right here — DSH's changes-review panel reads its own snapshot and cannot show writes made outside the file tools, so the dock no longer hands off.
 - **Resident, but quiet**: the dock sits above the composer by default. Turn residency off and it appears only while a turn has unhandled file changes.
 - **Multiple sessions stay separate**: the overview in Settings groups checkpoints by DSH session title.

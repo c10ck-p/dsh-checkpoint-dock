@@ -512,3 +512,63 @@ test('rotating the key keeps the blobs sealed by the previous one readable', asy
   assert.equal(after.crypto.keys, 2)
   assert.equal(after.crypto.fingerprint, rotated.fingerprint)
 })
+
+test('a revert can be taken back in one go', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'a.txt')
+  await fs.writeFile(file, 'zero\n')
+  const store = new EditCheckpointStore(root)
+  for (const turn of [1, 2, 3]) {
+    await store.capture({ sessionId: 'session-r', cwd, turn, absolute: file, prompt: `turn ${turn}` })
+    await fs.writeFile(file, `turn ${turn}\n`)
+    await store.seal('session-r', turn, turn * 10)
+  }
+
+  const reverted = await store.revert('session-r', 1)
+  assert.equal(reverted.ok, true, reverted.message)
+  assert.equal(typeof reverted.batch, 'string')
+
+  const undone = (await store.loadAll('session-r')).filter((record) => record.status === 'undone')
+  assert.deepEqual(undone.map((record) => record.turn).sort(), [2, 3])
+  for (const record of undone) assert.equal(record.revertBatch, reverted.batch)
+
+  const back = await store.redoBatch(reverted.batch)
+  assert.equal(back.ok, true, back.message)
+  assert.equal(back.records, 2)
+  const restored = await store.loadAll('session-r')
+  assert.deepEqual(restored.map((record) => record.status), ['sealed', 'sealed', 'sealed'])
+  assert.equal(await fs.readFile(file, 'utf8'), 'turn 3\n')
+
+  const again = await store.redoBatch(reverted.batch)
+  assert.equal(again.ok, false)
+  assert.match(again.message, /反悔过了/)
+})
+
+test('a single redo leaves the revert batch for the rest', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'b.txt')
+  await fs.writeFile(file, 'zero\n')
+  const store = new EditCheckpointStore(root)
+  for (const turn of [1, 2, 3]) {
+    await store.capture({ sessionId: 'session-s', cwd, turn, absolute: file, prompt: `turn ${turn}` })
+    await fs.writeFile(file, `turn ${turn}\n`)
+    await store.seal('session-s', turn, turn * 10)
+  }
+
+  const reverted = await store.revert('session-s', 1)
+  assert.equal(reverted.ok, true, reverted.message)
+
+  const single = await store.redo('session-s', 2)
+  assert.equal(single.ok, true, single.message)
+  const turn2 = (await store.loadAll('session-s')).find((record) => record.turn === 2)
+  assert.equal(turn2.status, 'sealed')
+  assert.equal(turn2.revertBatch, '')
+
+  const rest = await store.redoBatch(reverted.batch)
+  assert.equal(rest.ok, true, rest.message)
+  assert.equal(rest.records, 1)
+})

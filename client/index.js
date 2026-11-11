@@ -261,6 +261,8 @@ window.__ModuleLoader__.load({
         cryptoRotateConfirm: '确认用新密钥加密之后的内容',
         cryptoRotated: '已生成新密钥 {fingerprint}，旧内容仍可读取',
         cryptoOff: '先开启加密，才能重置密钥',
+        revertUndone: '已回退到第 {turn} 轮之后，{count} 条检查点被撤销',
+        undoRevert: '反悔这次回退',
         contentRemoved: '内容已清理',
         recovered: '已恢复',
         diff: '查看所有变更',
@@ -385,6 +387,8 @@ window.__ModuleLoader__.load({
         cryptoRotateConfirm: 'Confirm sealing new content with a fresh key',
         cryptoRotated: 'New key {fingerprint}; older content stays readable',
         cryptoOff: 'Turn encryption on before rotating the key',
+        revertUndone: 'Reverted past turn {turn}; {count} checkpoints were undone',
+        undoRevert: 'Take that revert back',
         contentRemoved: 'Content cleaned',
         recovered: 'Recovered',
         diff: 'View all changes',
@@ -474,6 +478,8 @@ window.__ModuleLoader__.load({
       '.ecp_settings .ecp_settingsSection{font-size:12px !important;font-weight:600;line-height:18px;color:var(--dsw-alias-label-primary);margin-bottom:6px}',
       '.ecp_cleanup{border-top:.5px solid var(--dsw-alias-border-l1);padding-top:12px;margin-top:2px}',
       '.ecp_crypto{border-top:.5px solid var(--dsw-alias-border-l1);padding-top:12px;margin-top:12px}',
+      '.ecp_revert{display:flex;align-items:center;gap:8px;margin:0 0 6px;padding:6px 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);border:.5px solid var(--dsw-alias-border-l1)}',
+      '.ecp_revertText{flex:1 1 auto;min-width:0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary)}',
       '.ecp_settings .ecp_crypto .ecp_settingsHint{font-size:11px !important;line-height:16px;margin:4px 0 6px}',
       '.ecp_settings .ecp_cleanup{font-size:11px !important;line-height:17px;color:var(--dsw-alias-label-secondary)}',
       '.ecp_settings .ecp_cleanup .ecp_settingsHint{font-size:11px !important;line-height:16px;margin:4px 0 6px}',
@@ -643,6 +649,9 @@ window.__ModuleLoader__.load({
       var recordsState = useState([])
       var records = recordsState[0]
       var setRecords = recordsState[1]
+      var undoingState = useState(false)
+      var undoing = undoingState[0]
+      var setUndoing = undoingState[1]
       var selectedState = useState(null)
       var selectedTurn = selectedState[0]
       var setSelectedTurn = selectedState[1]
@@ -1418,6 +1427,39 @@ window.__ModuleLoader__.load({
       var pageRecords = ordered.slice(0, Math.max(30, visibleLimit))
       var hiddenRecords = ordered.length - pageRecords.length
 
+      // The most recent revert that can still be taken back in one click.
+      var latestBatch = null
+      for (var batchIndex = 0; batchIndex < records.length; batchIndex += 1) {
+        var batchRecord = records[batchIndex]
+        if (batchRecord.status !== 'undone' || !batchRecord.revertBatch) continue
+        if (latestBatch === null || (batchRecord.time || 0) > latestBatch.time) {
+          latestBatch = { batch: batchRecord.revertBatch, target: batchRecord.revertTarget, time: batchRecord.time || 0 }
+        }
+      }
+      var batchCount = 0
+      if (latestBatch !== null) {
+        for (var countIndex = 0; countIndex < records.length; countIndex += 1) {
+          var countRecord = records[countIndex]
+          if (countRecord.status === 'undone' && countRecord.revertBatch === latestBatch.batch) batchCount += 1
+        }
+      }
+
+      var undoRevert = function () {
+        if (latestBatch === null || undoing) return
+        setUndoing(true)
+        api.redoBatch(latestBatch.batch).then(function (result) {
+          if (!result || result.ok !== true) {
+            setError(result && result.message ? result.message : t('actionFailed'))
+            return
+          }
+          setError('')
+          setSelectedTurn(null)
+          refresh()
+        }).catch(function (failure) {
+          setError(failure && failure.message ? failure.message : t('actionFailed'))
+        }).finally(function () { setUndoing(false) })
+      }
+
       var patchLine = function (line, lineIndex) {
         if (line.indexOf('@@') === 0) {
           return createElement('li', { key: 'h' + lineIndex, className: 'ecp_patchLine ecp_patchMeta' }, line)
@@ -1529,6 +1571,20 @@ window.__ModuleLoader__.load({
                 ])
               })) : null,
           ]),
+        ]),
+        collapsed || latestBatch === null ? null : createElement('div', { key: 'revertBanner', className: 'ecp_revert' }, [
+          createElement('span', { key: 'text', className: 'ecp_revertText' },
+            fill(t, 'revertUndone', {
+              count: batchCount,
+              turn: latestBatch.target === null || latestBatch.target === undefined ? '—' : latestBatch.target,
+            })),
+          createElement('button', {
+            key: 'button',
+            type: 'button',
+            className: 'ecp_btn',
+            disabled: undoing,
+            onClick: undoRevert,
+          }, t('undoRevert')),
         ]),
         collapsed ? null : (ordered.length === 0
           ? createElement('div', { key: 'cpsEmpty', className: 'ecp_empty' }, t('filterEmpty'))
@@ -2416,6 +2472,7 @@ window.__ModuleLoader__.load({
         statsAll: function () { return call('get', '*', -999999) },
         cleanAll: function () { return call('undo', '*', -999999) },
         rotateKey: function () { return call('undo', 'key', -999995) },
+        redoBatch: function (batch) { return call('undo', 'batch:' + batch, -999994) },
       }
 
       var openReview = function (coordinates, index) {
