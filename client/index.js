@@ -253,8 +253,8 @@ window.__ModuleLoader__.load({
         storageKeepOption: '{n} 条',
         contentRemoved: '内容已清理',
         recovered: '已恢复',
-        diff: '查看变更',
-        hideDiff: '收起变更',
+        diff: '查看所有变更',
+        hideDiff: '收起所有变更',
         diffLoading: '正在读取变更…',
         diffUnavailable: '这条记录没有可用的内容（旧记录或已清理）',
         diffBinary: '二进制文件不显示文本差异',
@@ -367,8 +367,8 @@ window.__ModuleLoader__.load({
         storageKeepOption: '{n} records',
         contentRemoved: 'Content cleaned',
         recovered: 'Recovered',
-        diff: 'View changes',
-        hideDiff: 'Hide changes',
+        diff: 'View all changes',
+        hideDiff: 'Hide all changes',
         diffLoading: 'Loading changes…',
         diffUnavailable: 'No content is available for this record (old or cleaned)',
         diffBinary: 'Binary files have no text diff',
@@ -410,6 +410,7 @@ window.__ModuleLoader__.load({
       '.ecp_files{border-top:.5px solid var(--dsw-alias-border-l1);margin:0;padding:0;list-style:none;max-height:150px;overflow-y:auto;overscroll-behavior:contain}',
       '.ecp_file{box-sizing:border-box;width:100%;min-width:0;min-height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:var(--ds-font-family-code);text-align:left;background:0 0;border:0;justify-content:space-between;align-items:center;gap:8px;margin:0;padding:5px 12px;font-size:11px;line-height:18px;display:flex}',
       '.ecp_file:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+      '.ecp_file.is-open{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
       '.ecp_file:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary))}',
       '.ecp_ext{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l1);border-radius:4px;background:var(--dsw-alias-bg-layer-2);flex:none;place-items:center;width:18px;height:18px;color:var(--dsw-alias-label-tertiary);font-size:9px;font-weight:600;line-height:1;display:grid;letter-spacing:-.02em}',
       '.ecp_filePath{min-width:0;font-family:var(--ds-font-family-code);text-overflow:ellipsis;white-space:nowrap;font-size:11px;overflow:hidden;flex:1}',
@@ -662,23 +663,10 @@ window.__ModuleLoader__.load({
       var diffLoadingState = useState(false)
       var diffLoading = diffLoadingState[0]
       var setDiffLoading = diffLoadingState[1]
-      var diffFocusState = useState(null)
+      var diffFocusState = useState('')
       var diffFocus = diffFocusState[0]
       var setDiffFocus = diffFocusState[1]
-      var diffRefs = useRef({})
-
-      // Bringing a file into view is a render effect: the patch panel only
-      // exists after the diff arrives, so scrolling has to wait for it.
-      useEffect(function () {
-        if (!showDiff || !diffFocus) return
-        var node = diffRefs.current[diffFocus.path]
-        if (!node || typeof node.scrollIntoView !== 'function') return
-        try {
-          node.scrollIntoView({ block: 'nearest' })
-        } catch (failure) {
-          node.scrollIntoView()
-        }
-      }, [showDiff, diff, diffFocus])
+      var diffTurnRef = useRef(null)
       var pinBusyState = useState(false)
       var pinBusy = pinBusyState[0]
       var setPinBusy = pinBusyState[1]
@@ -743,6 +731,7 @@ window.__ModuleLoader__.load({
 
       useEffect(function () {
         setShowDiff(false)
+        setDiffFocus('')
         setDiff(null)
       }, [selectedTurn])
 
@@ -1261,15 +1250,18 @@ window.__ModuleLoader__.load({
         }
       }
 
-      var toggleDiff = function () {
-        if (diffLoading) return
-        if (showDiff) {
-          setShowDiff(false)
-          return
-        }
-        setShowDiff(true)
+      // The patch for the selected turn is fetched once and kept until the
+      // selection changes; both the "all changes" button and a single file row
+      // read from it.
+      var diffLoaded = function () {
+        return diff !== null && diffTurnRef.current === selected.turn
+      }
+
+      var loadDiff = function () {
+        if (diffLoaded() || diffLoading) return
         setDiffLoading(true)
         setError('')
+        diffTurnRef.current = selected.turn
         api.diff(sessionId, selected.turn).then(function (result) {
           setDiff(result)
         }).catch(function (failure) {
@@ -1277,6 +1269,16 @@ window.__ModuleLoader__.load({
         }).finally(function () {
           setDiffLoading(false)
         })
+      }
+
+      var toggleAllDiff = function () {
+        if (showDiff) {
+          setShowDiff(false)
+          return
+        }
+        setDiffFocus('')
+        setShowDiff(true)
+        loadDiff()
       }
 
       var runPin = function () {
@@ -1296,19 +1298,24 @@ window.__ModuleLoader__.load({
         })
       }
 
-      // The DSH changes-review panel reads its own snapshot, which cannot show
-      // writes that bypassed the file tools. The dock's own patch panel can, so
-      // a file row opens that instead of handing off to the reviewer.
+      // A file row opens only that file's patch. The DSH changes-review panel
+      // reads its own snapshot, which cannot show writes that bypassed the file
+      // tools, so the dock keeps the patch in place instead of handing off.
       var openDiffFor = function (path) {
-        setDiffFocus({ path: path, tick: Date.now() })
-        if (!showDiff) toggleDiff()
+        if (diffFocus === path && !showDiff) {
+          setDiffFocus('')
+          return
+        }
+        setShowDiff(false)
+        setDiffFocus(path)
+        loadDiff()
       }
 
       var fileRow = function (file, fileIndex) {
         var clickable = !!selected.seq && diffAvailable
         return createElement('li', { key: file.path + ':' + fileIndex }, createElement('button', {
           type: 'button',
-          className: 'ecp_file',
+          className: 'ecp_file' + (diffFocus === file.path && !showDiff ? ' is-open' : ''),
           title: file.path,
           onClick: clickable
             ? function () { openDiffFor(file.path) }
@@ -1386,7 +1393,7 @@ window.__ModuleLoader__.load({
       }
 
       var diffPanel = null
-      if (showDiff) {
+      if (showDiff || diffFocus !== '') {
         var diffChildren = []
         if (diffLoading) {
           diffChildren.push(createElement('div', { key: 'loading', className: 'ecp_patchMeta' }, t('diffLoading')))
@@ -1397,6 +1404,9 @@ window.__ModuleLoader__.load({
             diff.message ? diff.message : t('diffUnavailable')))
         } else {
           var diffFiles = Array.isArray(diff.files) ? diff.files : []
+          if (diffFocus !== '') {
+            diffFiles = diffFiles.filter(function (file) { return file.path === diffFocus })
+          }
           if (diffFiles.length === 0) {
             diffChildren.push(createElement('div', { key: 'none', className: 'ecp_patchMeta' }, t('diffEmpty')))
           }
@@ -1415,8 +1425,7 @@ window.__ModuleLoader__.load({
             }
             diffChildren.push(createElement('div', {
               key: diffFile.path + ':' + diffFileIndex,
-              className: 'ecp_diffFile' + (diffFocus && diffFocus.path === diffFile.path ? ' is-focus' : ''),
-              ref: function (node) { diffRefs.current[diffFile.path] = node },
+              className: 'ecp_diffFile' + (diffFocus === diffFile.path ? ' is-focus' : ''),
             }, [
               createElement('div', { key: 'head', className: 'ecp_diffHead' }, [
                 createElement('span', { key: 'path', className: 'ecp_filePath' }, diffFile.path),
@@ -1552,7 +1561,7 @@ window.__ModuleLoader__.load({
               type: 'button',
               className: 'ecp_btn' + (showDiff ? ' ecp_keep' : ''),
               disabled: busy !== '' || !diffAvailable,
-              onClick: toggleDiff,
+              onClick: toggleAllDiff,
             }, showDiff ? t('hideDiff') : t('diff')),
           ]),
         ]),
