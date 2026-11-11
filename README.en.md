@@ -25,7 +25,7 @@ DSH's built-in “edited N files” card tells you what a turn produced. This pl
 - **See the change in place**: expand a before/after diff inside the dock; file rows still open DSH's changes-review sidebar.
 - **Resident, but quiet**: the dock sits above the composer by default. Turn residency off and it appears only while a turn has unhandled file changes.
 - **Multiple sessions stay separate**: the overview in Settings groups checkpoints by DSH session title.
-- **Git-free at heart**: no repository and no commit are needed, and `git gc` cannot make old checkpoints unreachable. When the workspace does happen to be a git repository, the end of a turn also borrows DSH's own snapshot comparison to record files written by shells, scripts, and editors — an optional bonus, not a prerequisite.
+- **No git dependency**: no repository, no commit, and `git gc` cannot make old checkpoints unreachable. Writes that bypass DSH's file tools are found by scanning the workspace once at the start and once at the end of a turn — so shell commands, scripts, and editors land in the checkpoint too.
 - **Native DSH styling**: buttons, menus, colors, and the settings page use DSH theme tokens.
 
 ## How it compares
@@ -38,10 +38,10 @@ DSH's built-in “edited N files” card tells you what a turn produced. This pl
 | Diff | Inline before/after | Tree diff in panel | Snapshot diff in panel | Any two checkpoints |
 | Restore | Keep / Undo / Redo / Revert here | `/rewind`, selective restore | File rollback + conversation fork | Rollback (via rewind) |
 | Conversation / config restore | No | Yes | Conversation | No |
-| Git dependency | None for the core; git repos also record external writes | git or copy mode | None | Inherited from rewind |
+| Git dependency | None | git or copy mode | None | Inherited from rewind |
 | Best for | Day-to-day file edits | Whole three-state rollback | Broad snapshot rollback | Inspecting historical diffs |
 
-Snapshot-style tools are a better fit when you need workspace, config, or session coverage. This plugin takes a different path: **small, fast, and file-focused**. No whole-workspace copy, no conversation fork, no config restore; checkpoints themselves need no git, and only a git workspace lends its snapshot so external writes can be added. The trade-off is that it covers file contents only, not session state.
+Snapshot-style tools are a better fit when you need workspace, config, or session coverage. This plugin takes a different path: **small, fast, and file-focused**. No whole-workspace copy, no conversation fork, no config restore, no git. The trade-off is that it covers file contents only, not session state.
 
 ## Install
 
@@ -78,7 +78,7 @@ Uninstalling leaves existing checkpoints in place; the data stays in `$DSH_HOME/
 3. Use **Keep / Undo / Redo / Revert to here** to act on that turn.
 4. The welcome page shows no dock; once you send the first message the dock keeps a single collapsed row even if the turn changed no files, and expanding it says there are no checkpoints yet. To browse everything, open **Settings → Checkpoints → Overview**.
 
-A turn settles its files when it ends: besides DSH's own file tools, writes from shell commands, scripts, and editors inside a git workspace are recovered from the turn's snapshot and recorded too. Outside a git repository only DSH's file tools are recorded.
+A turn settles its files when it ends: the workspace is scanned once at the start and once at the end, and every difference between the two scans is recorded — so a file written by a shell command, a script, or an editor shows up in the checkpoint just like one written by DSH's own file tools.
 
 When residency is off, the dock appears only while a turn has unhandled file changes and hides again once they are handled. Settings are stored per browser and shared across DSH ports on the same machine.
 
@@ -97,7 +97,7 @@ Checkpoints are numbered in session order, and the overview groups them by DSH s
 
 - Checkpoint data is stored in plain text under `$DSH_HOME/edit-checkpoints/` and includes the contents of changed files. Do not commit this directory or sync it to an untrusted location.
 - `.env*`, private keys, and `.ssh/.aws/.gnupg` are skipped by default. This is a conservative filter, not encryption, and not a replacement for secret management.
-- Only writes made through DSH file tools are captured. Writes from shells, build scripts, git, or external editors are not checkpointed.
+- The turn-start/turn-end scan skips `.git`, `node_modules`, `.tmp`, and similar directories, caps a single file at 4 MiB, and stops at 4000 files or 32 MiB in total; a turn that exceeds the budget records only DSH file-tool writes.
 - The per-file limit is 4 MiB. Larger files are recorded with approximate line counts and are excluded from safe undo.
 - A damaged record file is renamed to `*.corrupt-<timestamp>` and isolated. Only that entry is lost; the rest of the session keeps working.
 - Deleting a session in DSH does not delete its checkpoints. Settings → Checkpoints → Storage lists them as deleted-session data and lets you decide when to clean up.
@@ -106,7 +106,7 @@ Checkpoints are numbered in session order, and the overview groups them by DSH s
 ## Limitations
 
 - Only files inside the current workspace are handled.
-- DSH's file tools are always recorded; writes that bypass them (shell commands, scripts, editor saves) are added at the end of a turn only when the workspace is a git repository. In a non-git workspace they do not appear in a checkpoint at all.
+- External writes are found by scanning the whole workspace, so a very large tree degrades: the turn that exceeds the budget records only DSH file-tool writes.
 - Restores file bytes and permission bits; it does not restore mtime, directories, symlink targets, or `.git` metadata.
 - Undo / Revert are overwrite-style restores: files created outside the reverted turn are not deleted.
 - Cross-session protection is checked on Undo / Redo / Revert, not as a continuous file-edit lock. Two sessions can still write the same file concurrently; if the other session's write lands before this turn is sealed, this turn's after state may already contain it. Fully preventing that requires workspace-level write serialization.

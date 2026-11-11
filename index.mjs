@@ -6,10 +6,9 @@
 
 import os from 'node:os'
 import path from 'node:path'
-import { readFile } from 'node:fs/promises'
+import { scanWorkspace, changedSince } from './lib/baseline.mjs'
 import { EditCheckpointService } from './lib/service.mjs'
 import { EditCheckpointStore } from './lib/store.mjs'
-import { revertHunks } from './lib/unpatch.mjs'
 
 export const name = 'dsh-checkpoint-dock'
 export const inject = ['fs', 'sessions']
@@ -129,87 +128,61 @@ export async function apply(ctx, config) {
   }
 
   /**
-   * The Host's workspace-changes service, when this DSH ships it. Its summary
-   * is computed from git snapshots taken at turn start and turn end, so it
-   * lists every path a turn changed — including a shell command or a script
-   * that never went through the file tools.
-   * @returns {any}
+   * Turn-start scans, keyed by session and turn. Each holds the content every
+   * file had before the turn wrote anything — the only way to name a write
+   * that never passed a `fs/*-intent` hook, and it needs no git repository.
+   * @type {Map<string, Promise<{files: Map<string, Buffer>, exceeded: boolean} | undefined>>}
    */
-  const changeService = () => {
-    try {
-      const service = typeof ctx.get === 'function' ? ctx.get('workspaceChanges') : undefined
-      if (service === undefined || service === null) return undefined
-      if (typeof service.summary !== 'function' || typeof service.diff !== 'function') return undefined
-      return service
-    } catch {
-      return undefined
-    }
-  }
+  const baselines = new Map()
 
-  /** Byte cap for reading a path's current text back for the reverse image. */
-  const EXTERNAL_MAX_BYTES = 4 * 1024 * 1024
+  /** @param {string} sessionId @param {number} turn */
+  const baselineKey = (sessionId, turn) => `${sessionId}:${turn}`
 
   /**
-   * Capture the paths a turn changed outside the file tools.
-   *
-   * Those paths never passed a `fs/*-intent` hook, so the pre-image has to be
-   * rebuilt from the comparison the workspace-changes service serves: its hunks
-   * describe every removed and added line, and a hunk that does not apply to
-   * the current file leaves the path out rather than restoring a guess.
-   * @param {any} session @param {number} turn @param {number} seq
+   * Read the workspace before the turn writes. A failed or oversized scan is
+   * not an error: that turn then records file-tool writes only, as it always
+   * did, instead of attributing unrelated diffs to the agent.
+   * @param {any} session @param {number} turn
    */
-  const captureExternal = async (session, turn, seq) => {
-    const service = changeService()
-    if (service === undefined) return
-    if (!Number.isInteger(seq) || seq <= 0) return
+  const takeBaseline = (session, turn) => {
     const cwd = session.header?.cwd
     if (typeof cwd !== 'string' || cwd === '') return
-    const summary = service.summary(session.id, seq)
-    const files = summary !== undefined && summary !== null && Array.isArray(summary.files) ? summary.files : []
-    for (let index = 0; index < files.length; index += 1) {
-      const entry = files[index]
-      if (entry === null || typeof entry !== 'object' || typeof entry.path !== 'string') continue
-      // A binary or oversized side has no text to reverse; recording it without
-      // a pre-image would offer an undo that cannot restore anything.
-      if (entry.binary === true || entry.oversized === true) continue
-      const absolute = path.isAbsolute(entry.path) ? entry.path : path.resolve(cwd, entry.path)
-      if (isGitMetadata(cwd, absolute)) continue
-      if (await store.hasFile(session.id, turn, absolute)) continue
-      let comparison
-      try {
-        comparison = await service.diff(session.id, seq, index)
-      } catch {
-        continue
-      }
-      if (comparison === undefined || comparison === null) continue
-      if (comparison.kind !== 'text' || comparison.coarse === true) continue
-      /** @type {{exists: boolean, buffer: Buffer | null}} */
-      let before
-      if (comparison.before === false) {
-        before = { exists: false, buffer: null }
-      } else {
-        const after = comparison.after === false ? '' : await readText(absolute)
-        if (after === undefined) continue
-        const text = revertHunks(after, comparison.hunks)
-        if (text === null) continue
-        before = { exists: true, buffer: Buffer.from(text, 'utf8') }
-      }
-      await store.capture({ sessionId: session.id, cwd, turn, absolute, prompt: latestPrompt(session), before })
-    }
+    const scan = scanWorkspace(cwd).catch((error) => {
+      warn(error)
+      return undefined
+    })
+    baselines.set(baselineKey(session.id, turn), scan)
   }
 
   /**
-   * Current text of a path, or undefined when it is too large or unreadable.
-   * @param {string} absolute
-   * @returns {Promise<string | undefined>}
+   * Record the paths a turn changed outside the file tools by comparing the
+   * workspace now against the turn-start scan. Both sides must be complete;
+   * a path the file tools already recorded is left alone.
+   * @param {any} session @param {number} turn
    */
-  const readText = async (absolute) => {
-    try {
-      const buffer = await readFile(absolute)
-      if (buffer.length > EXTERNAL_MAX_BYTES) return undefined
-      return buffer.toString('utf8')
-    } catch {
-      return undefined
+  const captureExternal = async (session, turn) => {
+    const key = baselineKey(session.id, turn)
+    const pending = baselines.get(key)
+    if (pending === undefined) return
+    baselines.delete(key)
+    const before = await pending
+    if (before === undefined || before.exceeded) return
+    const cwd = session.header?.cwd
+    if (typeof cwd !== 'string' || cwd === '') return
+    const after = await scanWorkspace(cwd).catch(() => undefined)
+    if (after === undefined || after.exceeded) return
+    for (const change of changedSince(before, after)) {
+      const absolute = path.join(cwd, change.path)
+      if (isGitMetadata(cwd, absolute)) continue
+      if (await store.hasFile(session.id, turn, absolute)) continue
+      await store.capture({
+        sessionId: session.id,
+        cwd,
+        turn,
+        absolute,
+        prompt: latestPrompt(session),
+        before: change.before === null ? { exists: false, buffer: null } : { exists: true, buffer: change.before },
+      })
     }
   }
 
@@ -265,7 +238,7 @@ export async function apply(ctx, config) {
     if (running !== undefined) return running
     const work = (async () => {
       await store.noteSeq(session.id, turn, seq)
-      await captureExternal(session, turn, seq)
+      await captureExternal(session, turn)
       await store.seal(session.id, turn, seq)
       // Cleanup runs at the turn boundary, never mid-turn: the user's "keep N"
       // setting is applied once the record is sealed and nothing is being
@@ -287,6 +260,7 @@ export async function apply(ctx, config) {
         // against the current disk before this new turn starts capturing, so a
         // stale open record cannot block keep/revert forever.
         void store.recoverOpen(session.id, event.data.turn).catch(warnSession(session))
+        takeBaseline(session, event.data.turn)
         return
       }
       if (event.type === 'workspace/changes') {
@@ -310,6 +284,10 @@ export async function apply(ctx, config) {
 
   ctx.on('session/disposed', (session) => {
     announcedSeq.delete(session)
+    const prefix = `${session.id}:`
+    for (const key of [...baselines.keys()]) {
+      if (key.startsWith(prefix)) baselines.delete(key)
+    }
   })
 
   await ctx.plugin(EditCheckpointService, { store })
