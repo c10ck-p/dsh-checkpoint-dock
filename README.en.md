@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/dsh-checkpoint-dock"><img alt="npm 0.1.0" src="docs/badge-npm.svg"></a>
+  <a href="https://www.npmjs.com/package/dsh-checkpoint-dock"><img alt="npm 0.1.1" src="docs/badge-npm.svg"></a>
   <img alt="DSH >= 0.2.2-rc.1" src="docs/badge-dsh.svg">
   <a href="LICENSE"><img alt="MIT License" src="docs/badge-license.svg"></a>
 </p>
@@ -21,12 +21,13 @@ DSH's built-in “edited N files” card tells you what a turn produced. This pl
 ## Highlights
 
 - **Per-turn, per-file checkpoints**: each checkpoint stores only the files that turn actually changed — no conversation copies, no whole-workspace snapshots.
-- **A complete undo path**: Keep → Undo → Redo → Revert to here. Accept a turn, go back to before it, reapply it, or roll all the way back to an older turn.
-- **Reverts are reversible too**: after a revert the dock keeps a row offering to redo that batch in order; checkpoints you already redid by hand are left out of it.
-- **See the change in place**: expand a before/after diff inside the dock; a file row expands the patch it belongs to right here — DSH's changes-review panel reads its own snapshot and cannot show writes made outside the file tools, so the dock no longer hands off.
-- **Resident, but quiet**: the dock sits above the composer by default. Turn residency off and it appears only while a turn has unhandled file changes.
-- **Multiple sessions stay separate**: the overview in Settings groups checkpoints by DSH session title.
-- **No git dependency**: no repository, no commit, and `git gc` cannot make old checkpoints unreachable. Writes that bypass DSH's file tools are found by comparing the workspace at the start and at the end of a turn — so shell commands, scripts, and editors land in the checkpoint too. A small tree is simply scanned; a large tree that happens to be a git repository is read through `git status`, which skips the full scan. Inside a repository the checkpoint also keeps the short HEAD hash at turn end, and a rename is shown as one row (`new ← old`) instead of a delete plus a create.
+- **A complete undo path**: Keep → Undo → Redo → Revert to here. Accept a turn, go back to before it, reapply it, or roll all the way back to an older turn. A revert can itself be taken back in one click, and checkpoints you already redid by hand are left out of that batch.
+- **External writes are recorded too**: not just DSH's file tools — a shell command, a script, or an editor also lands in the checkpoint, because the workspace is compared at the start and at the end of a turn.
+- **Restores are transactional**: a multi-file undo, redo or revert writes an intent journal first, then replaces files one by one. If the process dies halfway, the first operation of the next start finishes the restore instead of leaving the workspace split between two turns.
+- **See the change in place**: expand a before/after diff inside the dock; a file row expands only that file's patch and **View all changes** expands the whole turn. With a single changed file that button turns into **Hide all changes**.
+- **Resident, but quiet**: the welcome page shows no dock; once a conversation starts the dock keeps a collapsed row even before the first checkpoint. Turn residency off and it appears only while a turn has unhandled file changes.
+- **Multiple sessions stay separate**: the overview groups checkpoints by DSH session title, and the Storage tab shows a per-session usage pie, labelling sessions you archived in DSH.
+- **No git dependency**: no repository, no commit, and `git gc` cannot make old checkpoints unreachable. A small tree is scanned directly; a large tree that happens to be a git repository is read through `git status`, which skips the full scan. Inside a repository the checkpoint also keeps the short HEAD hash at turn end, and a rename is shown as one row (`new ← old`) instead of a delete plus a create.
 - **Optional encryption**: off by default. When enabled, checkpoint content is sealed with AES-256-GCM and the keys live outside the checkpoint directory in `$DSH_HOME/checkpoint-keys/`; resetting a key only adds another one, so old content stays readable.
 - **Native DSH styling**: buttons, menus, colors, and the settings page use DSH theme tokens.
 
@@ -38,9 +39,11 @@ DSH's built-in “edited N files” card tells you what a turn produced. This pl
 | --- | --- | --- | --- | --- |
 | Scope | Files changed per turn | Workspace + config + session cursor | Whole workspace | No snapshots; reads rewind snapshots |
 | Diff | Inline before/after | Tree diff in panel | Snapshot diff in panel | Any two checkpoints |
-| Restore | Keep / Undo / Redo / Revert here | `/rewind`, selective restore | File rollback + conversation fork | Rollback (via rewind) |
+| Restore | Keep / Undo / Redo / Revert here / take a revert back | `/rewind`, selective restore | File rollback + conversation fork | Rollback (via rewind) |
+| External writes | Compared per turn, git used when it pays | Covered by the snapshot | Covered by the whole-workspace snapshot | Inherited from rewind |
+| Transactional restore | Intent journal, finished after a crash | No | No | No |
 | Conversation / config restore | No | Yes | Conversation | No |
-| Git dependency | None | git or copy mode | None | Inherited from rewind |
+| Git dependency | None, optionally used | git or copy mode | None | Inherited from rewind |
 | Best for | Day-to-day file edits | Whole three-state rollback | Broad snapshot rollback | Inspecting historical diffs |
 
 Snapshot-style tools are a better fit when you need workspace, config, or session coverage. This plugin takes a different path: **small, fast, and file-focused**. No whole-workspace copy, no conversation fork, no config restore, no git. The trade-off is that it covers file contents only, not session state.
@@ -58,7 +61,7 @@ dsh plugin --profile desktop add dsh-checkpoint-dock
 From a local directory:
 
 ```powershell
-dsh plugin --profile desktop add D:\path\to\dsh-checkpoint-dock
+dsh plugin --profile desktop add D:\\path\\to\\dsh-checkpoint-dock
 ```
 
 You can also pick the local bundle from the Plugins page. Refresh the page afterwards and the dock shows up.
@@ -77,8 +80,10 @@ Uninstalling leaves existing checkpoints in place; the data stays in `$DSH_HOME/
 
 1. Let the agent modify files during a turn.
 2. A checkpoint appears above the composer. Expand it to see the files and the diff.
-3. Use **Keep / Undo / Redo / Revert to here** to act on that turn.
-4. The welcome page shows no dock; once you send the first message the dock keeps a single collapsed row even if the turn changed no files, and expanding it says there are no checkpoints yet. To browse everything, open **Settings → Checkpoints → Overview**.
+3. Use **Keep / Undo / Redo / Revert to here** on that turn; a file row expands only its own patch, **View all changes** expands the whole turn and collapses it again.
+4. The welcome page shows no dock; once you send the first message the dock keeps a single collapsed row even if the turn changed no files, and expanding it says there are no checkpoints yet.
+
+To browse everything, open **Settings → Checkpoints → Overview**; cleanup and encryption live under **Config**; usage and the per-session pie live under **Storage**.
 
 A turn settles its files when it ends: the workspace is compared at the start and at the end, and every difference is recorded — so a file written by a shell command, a script, or an editor shows up in the checkpoint just like one written by DSH's own file tools. A small tree is scanned as a whole; a large one that is a git repository is compared through `git status` plus `git cat-file`, reading only the files that really changed.
 
@@ -92,18 +97,17 @@ Checkpoints are numbered in session order, and the overview groups them by DSH s
 - Keeping the latest checkpoint also marks every earlier un-reverted checkpoint as kept.
 - Once a later checkpoint is kept, earlier checkpoints cannot be undone individually, even if the two turns touched different files. Use **Revert to here** for a whole-range rollback.
 - Undo / Redo / Revert verify each file's current hash first. If another tool or a manual edit changed the file, they report a conflict instead of overwriting it.
-- A multi-file restore writes an intent journal (`$DSH_HOME/edit-checkpoints/pending.json`) before touching any file. If the process dies halfway, the first operation of the next start finishes that restore, so the workspace never stays split between two turns and no restored file is left marked as sealed.
+- A multi-file restore writes an intent journal (`$DSH_HOME/edit-checkpoints/pending.json`) before touching any file, then replaces files, and only then updates the record. If the process dies halfway, the first operation of the next start finishes that restore, so the workspace never stays split between two turns and no restored file is left marked as sealed.
 - Redo only works from the earliest undone checkpoint forward. A newer active checkpoint blocks it.
-- Revert undoes every checkpoint after the target. Those records become undone and can be redone in order.
+- Revert undoes every checkpoint after the target. Those records become undone and can be redone in order; the dock keeps a **Take that revert back** row that redoes the whole batch.
 
 ## Data and privacy
 
-- Checkpoint data is stored in plain text under `$DSH_HOME/edit-checkpoints/` and includes the contents of changed files. Do not commit this directory or sync it to an untrusted location.
-- `.env*`, private keys, and `.ssh/.aws/.gnupg` are skipped by default. This is a conservative filter, not encryption, and not a replacement for secret management.
-- The filter also covers `.npmrc`, `.yarnrc*`, `.pypirc`, `.git-credentials`, `kubeconfig`, `secrets.yaml/json`, `.docker/`, `*.kdbx`, and similar names: a matching file keeps its path and hash in the record, but its contents never enter a checkpoint. It is a best-effort filter, not encryption, and not a replacement for secret management.
+- Checkpoint data is **stored in plain text by default** under `$DSH_HOME/edit-checkpoints/` and includes the contents of changed files; encryption can be enabled on the Config tab. Either way, do not commit this directory or sync it to an untrusted location.
+- `.env*`, private keys, `.ssh/.aws/.gnupg`, `.npmrc`, `.yarnrc*`, `.pypirc`, `.git-credentials`, `kubeconfig`, `secrets.yaml/json`, `.docker/`, `*.kdbx`, and similar names are skipped by default: a matching file keeps its path and hash in the record, but its contents never enter a checkpoint. This is a best-effort filter, not encryption, and not a replacement for secret management.
 - Tighten the data directory to yourself: `chmod 700 $DSH_HOME/edit-checkpoints`. Keep the DSH web UI bound to `127.0.0.1` and do not forward the port — any client that can reach the gateway can trigger `undo`/`revert` and change workspace files; the confirmation dialog is not a security boundary.
 - A restore writes `.dsh-ckpt-<pid>-<n>.tmp` next to the target file and removes it when done. A file left behind by a DSH crash is safe to delete.
-- Without git, the turn-start/turn-end scan skips `.git`, `node_modules`, `.tmp`, and similar directories, caps a single file at 4 MiB, and stops at 4000 files or 32 MiB in total; a turn that exceeds the budget records only DSH file-tool writes. A large tree that is a git repository reads only the paths git reports, so ignored build output never enters the comparison.
+- External-write detection has a budget. The whole-tree scan skips `.git`, `node_modules`, `.tmp` and similar directories, skips every dot-directory and dot-file, caps a single file at 4 MiB, and stops at 4000 files or 32 MiB in total. The git path keeps content only for files that were already dirty at turn start, capped at 2000 files or 32 MiB. A turn that exceeds the budget records only DSH file-tool writes.
 - The per-file limit is 4 MiB. Larger files are recorded with approximate line counts and are excluded from safe undo.
 - The Config tab can turn on **Encrypt checkpoint content**. It is off by default: once encryption is on, losing or deleting `$DSH_HOME/checkpoint-keys/` leaves those checkpoints visible only as "its key is missing" — no undo, no diff. New content is sealed immediately; older content is encrypted in batches on later turns (up to 40 blobs per turn) and can be switched off at any time. Keys are only ever added, so restoring an old key file makes its blobs readable again. Once encryption is on, the Config tab also shows Rotate key: it mints one new key for later checkpoints and leaves older content readable.
 - A damaged record file is renamed to `*.corrupt-<timestamp>` and isolated. Only that entry is lost; the rest of the session keeps working.
@@ -113,7 +117,9 @@ Checkpoints are numbered in session order, and the overview groups them by DSH s
 ## Limitations
 
 - Only files inside the current workspace are handled.
-- Without git, external writes are found by scanning the whole workspace, so a very large tree degrades: the turn that exceeds the budget records only DSH file-tool writes. A large tree that is a git repository pays per changed path instead of per file in the tree.
+- Every dot-directory and dot-file is skipped, so content changed by a shell command inside `.github/`, `.vscode/` or `.config/` is never noticed (writes through DSH's file tools still are).
+- The git path cannot see files ignored by `.gitignore` — build output, `node_modules`, logs. The scan skips those directories too, so both paths agree.
+- On a very large tree external-write detection degrades: the turn that exceeds the budget records only DSH file-tool writes, and so does a turn where the git command fails.
 - Restores file bytes and permission bits; it does not restore mtime, directories, symlink targets, or `.git` metadata.
 - Undo / Revert are overwrite-style restores: files created outside the reverted turn are not deleted.
 - Cross-session protection is checked on Undo / Redo / Revert, not as a continuous file-edit lock. Two sessions can still write the same file concurrently; if the other session's write lands before this turn is sealed, this turn's after state may already contain it. Fully preventing that requires workspace-level write serialization.
