@@ -195,6 +195,7 @@ window.__ModuleLoader__.load({
         confirmRevert: '确认回退',
         revertTarget: '恢复到检查点 {n} 结束时的文件状态',
         revertLatest: '已经是最新检查点',
+        revertCleaned: '回退要用到已经清理掉的检查点内容，无法执行',
         revertRecording: '检查点还在记录中，不能回退',
         revertDone: '已撤销的检查点不能作为回退目标',
         revertKeptLater: '检查点 {n} 已保留，无法越过它回退',
@@ -334,6 +335,7 @@ window.__ModuleLoader__.load({
         confirmRevert: 'Confirm revert',
         revertTarget: 'Restore files to the end of checkpoint {n}',
         revertLatest: 'This is already the latest checkpoint',
+        revertCleaned: 'Reverting needs content that was already cleaned up',
         revertRecording: 'This checkpoint is still recording',
         revertDone: 'An undone checkpoint cannot be a revert target',
         revertKeptLater: 'Checkpoint {n} was kept; cannot revert past it',
@@ -1103,8 +1105,22 @@ window.__ModuleLoader__.load({
           if (newerList[revertIndex].status === 'kept') revertKeptCount += 1
         }
       }
-      var revertDisabled = busy !== '' || !revertTarget || newerList.length === 0 || revertBlocker !== null
-      var revertTitle = selectedStatus === 'open'
+      // Reverting replays the before-images of every newer checkpoint, so a row
+      // whose content was cleaned (or a cleaned checkpoint in between) cannot
+      // work — say so instead of letting the host reject it after a click.
+      var revertCleaned = selected.contentRemoved === true
+      if (!revertCleaned) {
+        for (var cleanIndex = 0; cleanIndex < newerList.length; cleanIndex += 1) {
+          if (newerList[cleanIndex].contentRemoved === true) {
+            revertCleaned = true
+            break
+          }
+        }
+      }
+      var revertDisabled = busy !== '' || !revertTarget || newerList.length === 0 || revertBlocker !== null || revertCleaned
+      var revertTitle = revertCleaned
+        ? t('revertCleaned')
+        : selectedStatus === 'open'
         ? t('revertRecording')
         : selectedStatus === 'undone'
           ? t('revertDone')

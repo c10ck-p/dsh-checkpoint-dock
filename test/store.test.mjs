@@ -284,6 +284,38 @@ more\n`)
   assert.ok(stats.bytes > 0)
 })
 
+test('a cleaned-up checkpoint refuses to be a revert target, and nothing moves', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const file = path.join(cwd, 'a.txt')
+
+  const write = async (turn, body) => {
+    await fs.writeFile(file, body)
+    await store.capture({ sessionId: 'session-clean', cwd, turn, absolute: file, prompt: '' })
+    await fs.writeFile(file, `${body} after ${turn}\n`)
+    await store.seal('session-clean', turn, 0)
+  }
+  for (let turn = 1; turn <= 6; turn += 1) await write(turn, `body ${turn}\n`)
+
+  // Keep five: only the first turn loses its content.
+  const cleaned = await store.clean('session-clean', 5)
+  assert.equal(cleaned.ok, true)
+  assert.equal(cleaned.records, 1)
+
+  const listed = await store.list('session-clean', { limit: 0 })
+  const first = listed.records.find((record) => record.turn === 1)
+  assert.equal(first.contentRemoved, true)
+  assert.equal(first.files[0].contentRemoved, true)
+
+  const before = await fs.readFile(file, 'utf8')
+  const refused = await store.revert('session-clean', 1)
+  assert.equal(refused.ok, false)
+  assert.equal(refused.code, 'content-removed')
+  assert.equal(await fs.readFile(file, 'utf8'), before)
+})
+
 test('auto clean trims an over-limit session and respects the setting', async () => {
   const { home, root } = await tempHome()
   const cwd = path.join(home, 'workspace')
