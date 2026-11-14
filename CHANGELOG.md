@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Added
-- 存储页的图例可以按会话「清空」：一次删掉这个会话的全部检查点，其他会话共用的内容保留。
+- 总览的会话下拉旁边多了清除按钮：选「全部会话」时清空全部检查点，选中某个对话时只清这个对话的；两次点击确认，其他会话共用的内容保留。
 
 - An interrupted restore that finds a file edited in the meantime now stops instead of overwriting it: the dock shows a banner saying which file moved, with "继续恢复" to apply the recorded pre-images anyway and "放弃这次恢复" to keep the file as it is. Before this, the next start replayed the journal unconditionally.
 

@@ -1020,3 +1020,33 @@ test('a whole session can be cleared without hurting the others', async () => {
   assert.equal(open.ok, false)
   assert.equal(open.code, 'not-ready')
 })
+
+test('clearing everything empties the store and stops while a turn is open', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const file = path.join(cwd, 'a.txt')
+
+  for (const sessionId of ['session-one', 'session-two']) {
+    await fs.writeFile(file, sessionId + '\n')
+    await store.capture({ sessionId, cwd, turn: 1, absolute: file, prompt: '' })
+    await fs.writeFile(file, sessionId + ' changed\n')
+    await store.seal(sessionId, 1, 0)
+  }
+
+  const cleared = await store.purgeAll()
+  assert.equal(cleared.ok, true, cleared.message)
+  assert.equal(cleared.records, 2)
+  assert.deepEqual(await store.loadAll('session-one'), [])
+  assert.deepEqual(await store.loadAll('session-two'), [])
+  const after = await store.stats('*')
+  assert.equal(after.records, 0)
+  assert.equal(after.bytes, 0)
+
+  // An open checkpoint blocks the wipe instead of being half-deleted.
+  await store.capture({ sessionId: 'session-one', cwd, turn: 1, absolute: file, prompt: '' })
+  const refused = await store.purgeAll()
+  assert.equal(refused.ok, false)
+  assert.equal(refused.code, 'not-ready')
+})

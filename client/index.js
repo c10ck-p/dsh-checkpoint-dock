@@ -240,9 +240,11 @@ window.__ModuleLoader__.load({
         storagePinned: '{n} 条已钉住，不参与清理',
         storagePolicy: '只清理最早的记录内容，保留最近 {n} 条和所有钉住项；清理后记录仍在，但不能再查看/撤销/重做。',
         clean: '清理旧内容',
-        purgeOne: '清空',
-        confirmPurgeOne: '确认清空',
-        purgeOneHint: '删除这个会话的全部检查点和它们的保存内容',
+        purgeAll: '清除所有检查点',
+        purgeScope: '清除这个对话的检查点',
+        confirmPurgeAll: '再点一次：清空全部',
+        confirmPurgeScope: '再点一次：清空这个对话',
+        purgeScopeHint: '删除检查点和它们保存的内容，不能恢复',
         cleanRow: '清理',
         confirmCleanRow: '确认清理',
         cleanRowHint: '只删除这一条的保存内容，记录本身和计数还在',
@@ -255,7 +257,6 @@ window.__ModuleLoader__.load({
         cleanNothing: '没有可清理的旧内容',
         storageOrphans: '已删除的会话：{sessions} 个会话 · {records} 条检查点 · {size}',
         storageOrphanHint: '会话在 DSH 里被删除后，检查点会一直留在磁盘上，直到你手动清理。',
-        purgeOrphans: '清理已删除会话的检查点',
         confirmPurge: '确认删除这些检查点',
         purgeDone: '已清理 {records} 条检查点，释放 {size}',
         purgeNothing: '没有可清理的已删除会话',
@@ -390,9 +391,11 @@ window.__ModuleLoader__.load({
         storagePinned: '{n} pinned records are never cleaned',
         storagePolicy: 'Only the oldest content is cleaned; the latest {n} and all pinned content stay. Records remain, but their diff/undo/redo stop working.',
         clean: 'Clean old content',
-        purgeOne: 'Clear',
-        confirmPurgeOne: 'Confirm clear',
-        purgeOneHint: 'Delete every checkpoint of this session and what it saved',
+        purgeAll: 'Clear all checkpoints',
+        purgeScope: 'Clear this conversation',
+        confirmPurgeAll: 'Click again to clear everything',
+        confirmPurgeScope: 'Click again to clear this conversation',
+        purgeScopeHint: 'Deletes the checkpoints and the content they saved; this cannot be undone',
         cleanRow: 'Clean',
         confirmCleanRow: 'Confirm clean',
         cleanRowHint: 'Drop only this checkpoint\'s saved content; the row and its counts stay',
@@ -405,7 +408,6 @@ window.__ModuleLoader__.load({
         cleanNothing: 'Nothing to clean',
         storageOrphans: 'Deleted sessions: {sessions} sessions · {records} checkpoints · {size}',
         storageOrphanHint: 'Deleting a session in DSH leaves its checkpoints on disk until you clean them up here.',
-        purgeOrphans: 'Clean up deleted sessions',
         confirmPurge: 'Confirm deleting these checkpoints',
         purgeDone: 'Removed {records} checkpoints and freed {size}',
         purgeNothing: 'No checkpoints from deleted sessions',
@@ -544,9 +546,8 @@ window.__ModuleLoader__.load({
       '.ecp_legendLabel{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary)}',
       '.ecp_legendSize{font-family:var(--ds-font-family-code);color:var(--dsw-alias-label-tertiary);flex:0 0 auto}',
       '.ecp_legendPct{font-family:var(--ds-font-family-code);color:var(--dsw-alias-label-tertiary);flex:0 0 auto;width:44px;text-align:right}',
-      '.ecp_legendClean{flex:0 0 auto;background:none;border:.5px solid var(--dsw-alias-border-light);border-radius:4px;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:15px;padding:0 5px;cursor:pointer;font-family:inherit}',
-      '.ecp_legendClean:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}',
-      '.ecp_legendClean.is-confirm{color:var(--dsw-alias-state-error-primary,#e5577b);border-color:currentColor}',
+      '.ecp_purge{margin-left:auto}',
+      '.ecp_purge.is-confirm{color:var(--dsw-alias-state-error-primary,#e5577b);border-color:currentColor}',
       '.ecp_storageToggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:11px !important}',
       '.ecp_storageCheck{margin:0;accent-color:var(--dsw-alias-state-accent-primary,#5b8def);cursor:pointer}',
       '.ecp_storagePicker{position:relative;min-width:96px}',
@@ -1857,9 +1858,13 @@ window.__ModuleLoader__.load({
       var cleanConfirmState = useState(false)
       var cleanConfirm = cleanConfirmState[0]
       var setCleanConfirm = cleanConfirmState[1]
+      // Two-step confirm for the destructive purge in the overview.
       var purgeConfirmState = useState(false)
       var purgeConfirm = purgeConfirmState[0]
       var setPurgeConfirm = purgeConfirmState[1]
+      var purgeBusyState = useState(false)
+      var purgeBusy = purgeBusyState[0]
+      var setPurgeBusy = purgeBusyState[1]
       var rotateConfirmState = useState(false)
       var rotateConfirm = rotateConfirmState[0]
       var setRotateConfirm = rotateConfirmState[1]
@@ -1874,13 +1879,6 @@ window.__ModuleLoader__.load({
       var histBusyState = useState('')
       var histBusy = histBusyState[0]
       var setHistBusy = histBusyState[1]
-      // Whole-session purge from the storage pie legend.
-      var purgeSessionState = useState('')
-      var purgeSession = purgeSessionState[0]
-      var setPurgeSession = purgeSessionState[1]
-      var purgeSessionBusyState = useState('')
-      var purgeSessionBusy = purgeSessionBusyState[0]
-      var setPurgeSessionBusy = purgeSessionBusyState[1]
       var keepPickerRef = useRef(null)
       var warnOpenState = useState(false)
       var warnOpen = warnOpenState[0]
@@ -1996,31 +1994,34 @@ window.__ModuleLoader__.load({
       }, [tab, loadStats])
 
       useEffect(function () {
-        if (purgeSession === '') return undefined
-        var timer = setTimeout(function () { setPurgeSession('') }, 4000)
+        if (!purgeConfirm) return undefined
+        var timer = setTimeout(function () { setPurgeConfirm(false) }, 4000)
         return function () { clearTimeout(timer) }
-      }, [purgeSession])
+      }, [purgeConfirm])
 
-      var runPurgeSession = function (id) {
-        if (purgeSessionBusy !== '') return
-        if (purgeSession !== id) {
-          setPurgeSession(id)
+      var runPurgeScope = function () {
+        if (purgeBusy) return
+        if (!purgeConfirm) {
+          setPurgeConfirm(true)
           return
         }
-        setPurgeSessionBusy(id)
+        var scope = sessionFilter === 'all' ? '' : sessionFilter
+        setPurgeBusy(true)
         setError('')
-        api.purgeSession(id).then(function (result) {
-          setPurgeSessionBusy('')
-          setPurgeSession('')
+        var request = scope === '' ? api.purgeAll() : api.purgeSession(scope)
+        request.then(function (result) {
+          setPurgeBusy(false)
+          setPurgeConfirm(false)
           if (!result || result.ok !== true) {
             setError(result && result.message ? result.message : t('actionFailed'))
             return
           }
+          setSessionFilter('all')
           loadHistory()
           loadStats()
         }).catch(function (failure) {
-          setPurgeSessionBusy('')
-          setPurgeSession('')
+          setPurgeBusy(false)
+          setPurgeConfirm(false)
           setError(failure && failure.message ? failure.message : t('actionFailed'))
         })
       }
@@ -2110,28 +2111,6 @@ window.__ModuleLoader__.load({
           }
           setError(fill(t, 'cryptoRotated', { fingerprint: result.fingerprint || '—' }))
           loadStats()
-        }).catch(function (failure) {
-          setError(failure && failure.message ? failure.message : t('actionFailed'))
-        }).finally(function () { setStorageBusy('') })
-      }
-
-      var runPurge = function () {
-        if (purgeConfirm !== true) {
-          setPurgeConfirm(true)
-          return
-        }
-        setPurgeConfirm(false)
-        setStorageBusy('purge')
-        setError('')
-        api.purgeOrphans('*').then(function (result) {
-          if (!result || result.ok !== true) {
-            setError(result && result.message ? result.message : t('actionFailed'))
-            return
-          }
-          if ((result.records || 0) === 0) setError(t('purgeNothing'))
-          else setError(fill(t, 'purgeDone', { records: result.records || 0, size: formatSize(result.bytes || 0) }))
-          loadStats()
-          loadHistory()
         }).catch(function (failure) {
           setError(failure && failure.message ? failure.message : t('actionFailed'))
         }).finally(function () { setStorageBusy('') })
@@ -2381,6 +2360,16 @@ window.__ModuleLoader__.load({
               return sessionOption(option.id, option.label)
             }))) : null,
           ]),
+          createElement('button', {
+            key: 'purge',
+            type: 'button',
+            className: 'ecp_btn ecp_purge' + (purgeConfirm ? ' is-confirm' : ''),
+            disabled: purgeBusy,
+            title: t('purgeScopeHint'),
+            onClick: runPurgeScope,
+          }, purgeConfirm
+            ? (sessionFilter === 'all' ? t('confirmPurgeAll') : t('confirmPurgeScope'))
+            : (sessionFilter === 'all' ? t('purgeAll') : t('purgeScope'))),
         ]),
         error === '' ? null : createElement('div', { key: 'error', className: 'ecp_error' }, error),
         loading
@@ -2496,16 +2485,6 @@ window.__ModuleLoader__.load({
               entry.archived ? createElement('span', { key: 'archived', className: 'ecp_archivedTag' }, t('archived')) : null,
               createElement('span', { key: 'size', className: 'ecp_legendSize' }, formatSize(entry.bytes)),
               createElement('span', { key: 'pct', className: 'ecp_legendPct' }, format(t, 'storagePercent', percent)),
-              entry.id
-                ? createElement('button', {
-                  key: 'purge',
-                  type: 'button',
-                  className: 'ecp_legendClean' + (purgeSession === entry.id ? ' is-confirm' : ''),
-                  disabled: purgeSessionBusy !== '',
-                  title: purgeSession === entry.id ? t('purgeOneHint') : t('purgeOneHint'),
-                  onClick: function () { runPurgeSession(entry.id) },
-                }, purgeSession === entry.id ? t('confirmPurgeOne') : t('purgeOne'))
-                : null,
             ])
           })),
         ])
@@ -2604,13 +2583,6 @@ window.__ModuleLoader__.load({
                 size: formatSize(stats.orphans.bytes || 0),
               })),
             createElement('div', { key: 'hint', className: 'ecp_storageHint' }, t('storageOrphanHint')),
-            createElement('button', {
-              key: 'purge',
-              type: 'button',
-              className: 'ecp_btn' + (purgeConfirm ? ' is-confirm' : ''),
-              disabled: storageBusy !== '',
-              onClick: runPurge,
-            }, purgeConfirm ? t('confirmPurge') : t('purgeOrphans')),
           ]) : null,
           createElement('div', { key: 'crypto', className: 'ecp_crypto' }, [
             createElement('div', { key: 'title', className: 'ecp_settingsSection' }, t('cryptoTitle')),
@@ -2812,7 +2784,6 @@ window.__ModuleLoader__.load({
         stats: function (sessionId) { return call('get', sessionId, -999999) },
         pin: function (sessionId, turn) { return call('keep', sessionId, -turn) },
         clean: function (sessionId) { return call('undo', sessionId, -999999) },
-        purgeOrphans: function (sessionId) { return call('undo', sessionId, -999998) },
         // Settings ride the get/undo routes: the gateway only ever passes
         // (sessionId, turn), so the patch travels as a JSON string in the
         // sessionId slot with its own sentinel turn.
@@ -2825,8 +2796,9 @@ window.__ModuleLoader__.load({
         // One row of the overview: the session rides the prefix so the turn
         // stays the real turn number.
         cleanRecord: function (sessionId, turn) { return call('undo', 'clean:' + sessionId, turn) },
-        // Whole-session purge from the storage legend.
+        // Whole-store and whole-session purge, both from the overview.
         purgeSession: function (sessionId) { return call('undo', 'purge:' + sessionId, -999993) },
+        purgeAll: function () { return call('undo', 'purge:*', -999993) },
         rotateKey: function () { return call('undo', 'key', -999995) },
         redoBatch: function (batch) { return call('undo', 'batch:' + batch, -999994) },
         // A restore interrupted by a crash: read it, then let the user choose.
