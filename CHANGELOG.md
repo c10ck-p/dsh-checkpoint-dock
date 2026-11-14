@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- 撤销、重做或回退之后，Host 半体会在 agent 的下一个步骤前注入一条上下文说明（列出被改动的文件、要求重新读取），dock 上同时显示「AI 下一步会收到这条说明」。它不唤醒空闲的 agent，也不冒充用户消息；30 分钟没用掉就作废。此前只能在输入框里替用户写字，而输入框并不总是接受外部插入。
+
+- After an undo, redo or revert the host half appends one context note ahead of the agent's next step (the files that moved, and a request to re-read them); the dock says "the agent will see this at its next step". The note never wakes an idle agent and never impersonates a user message, and it expires after 30 minutes.
+
 - 总览的会话下拉旁边多了清除按钮：选「全部会话」时清空全部检查点，选中某个对话时只清这个对话的；两次点击确认，其他会话共用的内容保留。
 
 - An interrupted restore that finds a file edited in the meantime now stops instead of overwriting it: the dock shows a banner saying which file moved, with "继续恢复" to apply the recorded pre-images anyway and "放弃这次恢复" to keep the file as it is. Before this, the next start replayed the journal unconditionally.

@@ -1105,3 +1105,57 @@ test('a cached record never leaks edits between reads', async () => {
   const [third] = await store.loadAll('session-a')
   assert.equal(third.pinned, true)
 })
+
+test('every successful restore reports the files it moved', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'a.txt')
+  /** @type {any[]} */
+  const reported = []
+  const store = new EditCheckpointStore(root, { onRestore: (info) => reported.push(info) })
+
+  await fs.writeFile(file, 'one\n')
+  await store.capture({ sessionId: 'session-a', cwd, turn: 1, absolute: file, prompt: '' })
+  await fs.writeFile(file, 'two\n')
+  await store.seal('session-a', 1, 0)
+
+  assert.equal((await store.undo('session-a', 1)).ok, true)
+  assert.equal(reported.length, 1)
+  assert.deepEqual(reported[0], { kind: 'undo', sessionId: 'session-a', turn: 1, files: ['a.txt'] })
+
+  assert.equal((await store.redo('session-a', 1)).ok, true)
+  assert.equal(reported[1].kind, 'redo')
+  assert.deepEqual(reported[1].files, ['a.txt'])
+
+  await store.capture({ sessionId: 'session-a', cwd, turn: 2, absolute: file, prompt: '' })
+  await fs.writeFile(file, 'three\n')
+  await store.seal('session-a', 2, 0)
+
+  const reverted = await store.revert('session-a', 1)
+  assert.equal(reverted.ok, true, reverted.message)
+  assert.equal(reported[2].kind, 'revert')
+  assert.deepEqual(reported[2].files, ['a.txt'])
+  assert.equal(await fs.readFile(file, 'utf8'), 'two\n')
+})
+
+test('a broken restore listener never fails the restore itself', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'a.txt')
+  const store = new EditCheckpointStore(root, {
+    onRestore: () => {
+      throw new Error('listener exploded')
+    },
+  })
+
+  await fs.writeFile(file, 'one\n')
+  await store.capture({ sessionId: 'session-a', cwd, turn: 1, absolute: file, prompt: '' })
+  await fs.writeFile(file, 'two\n')
+  await store.seal('session-a', 1, 0)
+
+  const undo = await store.undo('session-a', 1)
+  assert.equal(undo.ok, true, undo.message)
+  assert.equal(await fs.readFile(file, 'utf8'), 'one\n')
+})

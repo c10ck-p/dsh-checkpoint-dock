@@ -6,6 +6,7 @@
 
 import os from 'node:os'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { scanWorkspace, changedSince, pairRenames } from './lib/baseline.mjs'
 import { takeGitBaseline, gitChanges, gitHead } from './lib/gitbase.mjs'
 import { EditCheckpointService } from './lib/service.mjs'
@@ -15,6 +16,8 @@ export const name = 'dsh-checkpoint-dock'
 export const inject = ['fs', 'sessions']
 
 const MAX_PROMPT = 160
+const NOTICE_TTL_MS = 30 * 60 * 1000
+const NOTICE_MAX_FILES = 4
 
 /** @param {any} session */
 function sessionEvents(session) {
@@ -61,6 +64,51 @@ function latestPrompt(session) {
   return ''
 }
 
+/** @param {any} value @returns {any} */
+function deepFreeze(value) {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value)
+    for (const key of Object.keys(value)) deepFreeze(value[key])
+  }
+  return value
+}
+
+/**
+ * The same shape `createUserMessage` from `@deepseek-ai/dsh-llm` builds: a
+ * frozen message with a fresh id. Built here so the plugin never has to import
+ * a package the host only injects for some plugins.
+ * @param {string} text
+ */
+function noticeMessage(text) {
+  return deepFreeze(structuredClone({
+    role: 'user',
+    content: [{ type: 'text', text }],
+    source: { kind: 'checkpoint-dock', form: 'notice', summary: 'checkpoint changes' },
+    id: randomUUID(),
+  }))
+}
+
+/**
+ * One sentence naming what moved and what the model must do about it.
+ * @param {{kind: string, turn: number, files: string[]}} info
+ * @param {boolean} chinese
+ */
+function noticeText(info, chinese) {
+  const shown = info.files.slice(0, NOTICE_MAX_FILES).join(', ')
+  const rest = info.files.length - NOTICE_MAX_FILES
+  const list = rest > 0 ? `${shown} (+${rest})` : shown
+  if (chinese) {
+    const verb = info.kind === 'revert'
+      ? '回退到了更早的检查点'
+      : info.kind === 'redo' || info.kind === 'redo-batch' ? '重做了一条检查点' : '撤销了一条检查点'
+    return `[checkpoint-dock] 用户刚刚${verb}（第 ${info.turn} 轮）。这些文件现在是那次操作之前的内容：${list}。继续之前请重新读取它们。`
+  }
+  const verb = info.kind === 'revert'
+    ? 'reverted to an earlier checkpoint'
+    : info.kind === 'redo' || info.kind === 'redo-batch' ? 'redid a checkpoint' : 'undid a checkpoint'
+  return `[checkpoint-dock] The user just ${verb} (turn ${info.turn}). These files now hold the content from before that operation: ${list}. Re-read them before continuing.`
+}
+
 /** @param {string} root @param {string} file */
 function isInside(root, file) {
   const relative = path.relative(root, file)
@@ -94,6 +142,10 @@ export async function apply(ctx, config) {
   void config
   const home = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
   const root = path.join(home, 'edit-checkpoints')
+  // A restore moves files under the agent's feet; the note waits for the
+  // agent's next step instead of waking it.
+  /** @type {Map<string, {text: string, at: number}>} */
+  const pendingNotices = new Map()
   const store = new EditCheckpointStore(root, {
     titleResolver: (sessionId) => sessionTitleFromServices(ctx, sessionId),
     // Liveness for the orphan report: a session is gone only when the live
@@ -120,6 +172,20 @@ export async function apply(ctx, config) {
       }
     },
     logger: ctx.logger,
+    // Compose the note in the language the session is already speaking, and
+    // only keep the latest one: an older restore is stale news by then.
+    onRestore: (info) => {
+      const sessionId = String(info.sessionId || '')
+      if (sessionId === '') return
+      let chinese = false
+      try {
+        const session = typeof ctx.sessions?.get === 'function' ? ctx.sessions.get(sessionId) : undefined
+        chinese = /[\u3400-\u9fff]/.test(latestPrompt(session))
+      } catch {
+        chinese = false
+      }
+      pendingNotices.set(sessionId, { text: noticeText(info, chinese), at: Date.now() })
+    },
   })
   /** @type {WeakMap<any, Map<number, number>>} */
   const announcedSeq = new WeakMap()
@@ -140,6 +206,28 @@ export async function apply(ctx, config) {
     warn(error)
     store.noteFailure(session?.id, error)
   }
+
+  /**
+   * Put the pending note in front of the model at its next step. This is the
+   * same waterfall DSH itself uses for its model-selection notice, so the text
+   * arrives as an ordinary context message — it never wakes an idle agent and
+   * never pretends to be the user's own words.
+   */
+  ctx.on('agent/pre-step', async ({ agent, messages, step, signal }, next) => {
+    const decision = await next()
+    if (decision === undefined || decision.kind === 'reject' || signal?.aborted === true) return decision
+    // Same guard as the built-in notice: nothing claimed this step means the
+    // driver is idle, and an idle step should not exist just to read a note.
+    if (decision.messages.length === 0 && (step === 1 || messages.length > 0)) return decision
+    const session = agent && agent.session
+    const sessionId = session && typeof session.id === 'string' ? session.id : ''
+    if (sessionId === '') return decision
+    const notice = pendingNotices.get(sessionId)
+    if (notice === undefined) return decision
+    pendingNotices.delete(sessionId)
+    if (Date.now() - notice.at > NOTICE_TTL_MS) return decision
+    return { ...decision, messages: [...decision.messages, noticeMessage(notice.text)] }
+  })
 
   /**
    * Turn-start snapshots, keyed by session and turn. A snapshot holds what the

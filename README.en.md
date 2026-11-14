@@ -103,6 +103,7 @@ Checkpoints are numbered in session order, and the overview groups them by DSH s
 - A multi-file restore writes an intent journal (`$DSH_HOME/edit-checkpoints/pending.json`) before touching any file, then replaces files, and only then updates the record. If the process dies halfway, the first operation of the next start finishes that restore, so the workspace never stays split between two turns and no restored file is left marked as sealed.
 - Redo only works from the earliest undone checkpoint forward. A newer active checkpoint blocks it.
 - Revert undoes every checkpoint after the target. Those records become undone and can be redone in order; the dock keeps a **Take that revert back** row that redoes the whole batch.
+- After an undo, redo or revert, the plugin adds one context note ahead of the agent's next step (naming the files and asking it to re-read them) and the dock says “the agent will see this at its next step”. The note never wakes an idle agent and never pretends to be a user message; one that is not used within 30 minutes is dropped. DSH separately refuses a write to a file that changed since it was read (`FS_STALE_VERSION`), so the model cannot keep writing from the stale bytes.
 
 ## Data and privacy
 
