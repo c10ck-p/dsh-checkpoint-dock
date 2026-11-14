@@ -263,6 +263,13 @@ window.__ModuleLoader__.load({
         cryptoOff: '先开启加密，才能重置密钥',
         revertUndone: '已回退到第 {turn} 轮之后，{count} 条检查点被撤销',
         undoRevert: '反悔这次回退',
+        journalPending: '上次恢复被中断，还有 {n} 个文件没写完。',
+        journalBlocked: '{path} 在恢复中断后又被修改过，继续会覆盖它。',
+        journalResume: '继续恢复',
+        journalDiscard: '放弃这次恢复',
+        originExternal: '外部',
+        originExternalHint: '这个改动没经过 DSH 的文件工具（shell、脚本或编辑器写的）。',
+        cryptoMixed: '检测到加密内容，但加密开关已关闭：旧内容仍能读，新写入会保存为明文。',
         contentRemoved: '内容已清理',
         recovered: '已恢复',
         diff: '查看所有变更',
@@ -389,6 +396,13 @@ window.__ModuleLoader__.load({
         cryptoOff: 'Turn encryption on before rotating the key',
         revertUndone: 'Reverted past turn {turn}; {count} checkpoints were undone',
         undoRevert: 'Take that revert back',
+        journalPending: 'The last restore was interrupted; {n} files are still pending.',
+        journalBlocked: '{path} changed after the interruption — continuing would overwrite it.',
+        journalResume: 'Finish the restore',
+        journalDiscard: 'Drop that restore',
+        originExternal: 'external',
+        originExternalHint: 'This file was written outside DSH file tools (shell, script, or editor).',
+        cryptoMixed: 'Encrypted content found with the switch off: it still opens, but new writes will be plaintext.',
         contentRemoved: 'Content cleaned',
         recovered: 'Recovered',
         diff: 'View all changes',
@@ -454,6 +468,7 @@ window.__ModuleLoader__.load({
       '.ecp_error{color:var(--dsw-alias-state-error-primary);border-top:.5px solid var(--dsw-alias-border-l1);padding:5px 12px;font-size:11px;line-height:16px}',
       '.ecp_pinPill{color:var(--dsw-alias-state-business-primary);font-size:10px;font-family:var(--ds-font-family);margin-left:6px}',
       '.ecp_renamed{color:var(--dsw-alias-label-tertiary);font-size:10px;font-family:var(--ds-font-family);margin-left:6px;flex:0 0 auto}',
+      '.ecp_originTag{color:var(--dsw-alias-label-tertiary);font-size:10px;font-family:var(--ds-font-family);margin-left:6px;padding:0 4px;border:.5px solid var(--dsw-alias-border-light);border-radius:3px;flex:0 0 auto}',
       '.ecp_diff{border-top:.5px solid var(--dsw-alias-border-l1);max-height:260px;overflow:auto;overscroll-behavior:contain;background:var(--dsw-alias-bg-layer-2)}',
       '.ecp_diffFile{padding:6px 12px;border-bottom:.5px solid var(--dsw-alias-border-l1)}',
       '.ecp_diffFile.is-focus{box-shadow:inset 2px 0 0 var(--dsw-alias-state-business-primary,var(--dsw-alias-label-primary))}',
@@ -652,6 +667,12 @@ window.__ModuleLoader__.load({
       var undoingState = useState(false)
       var undoing = undoingState[0]
       var setUndoing = undoingState[1]
+      var journalState = useState(null)
+      var journal = journalState[0]
+      var setJournal = journalState[1]
+      var journalBusyState = useState(false)
+      var journalBusy = journalBusyState[0]
+      var setJournalBusy = journalBusyState[1]
       var selectedState = useState(null)
       var selectedTurn = selectedState[0]
       var setSelectedTurn = selectedState[1]
@@ -706,6 +727,11 @@ window.__ModuleLoader__.load({
 
       var refresh = useCallback(function () {
         if (!sessionId || !api) return
+        // A crash may leave a half-applied restore behind. It is rare, so this
+        // rides the same poll as the list instead of a second timer.
+        api.journal().then(function (info) {
+          setJournal(info && typeof info === 'object' ? info : null)
+        }).catch(function () {})
         api.list(sessionId).then(function (list) {
           // A malformed or empty answer is not "this session has no
           // checkpoints": keeping the last good list beats hiding the dock
@@ -1373,6 +1399,9 @@ window.__ModuleLoader__.load({
           file.renamedFrom
             ? createElement('span', { key: 'r', className: 'ecp_renamed', title: file.renamedFrom }, '← ' + file.renamedFrom)
             : null,
+          file.origin === 'external'
+            ? createElement('span', { key: 'o', className: 'ecp_originTag', title: t('originExternalHint') }, t('originExternal'))
+            : null,
           createElement('span', { key: 'c', className: 'ecp_fileCounts' },
             file.binary
               ? createElement('span', { key: 'b' }, t('binary'))
@@ -1464,6 +1493,25 @@ window.__ModuleLoader__.load({
         }).catch(function (failure) {
           setError(failure && failure.message ? failure.message : t('actionFailed'))
         }).finally(function () { setUndoing(false) })
+      }
+
+      // The crash journal is applied automatically when the files still match.
+      // When one of them changed, only the user can decide: overwrite it or
+      // drop the journal.
+      var settleJournal = function (resume) {
+        if (journalBusy) return
+        setJournalBusy(true)
+        var request = resume ? api.resumeJournal() : api.discardJournal()
+        request.then(function (result) {
+          if (!result || result.ok !== true) {
+            setError(result && result.message ? result.message : t('actionFailed'))
+            return
+          }
+          setError('')
+          refresh()
+        }).catch(function (failure) {
+          setError(failure && failure.message ? failure.message : t('actionFailed'))
+        }).finally(function () { setJournalBusy(false) })
       }
 
       var patchLine = function (line, lineIndex) {
@@ -1577,6 +1625,26 @@ window.__ModuleLoader__.load({
                 ])
               })) : null,
           ]),
+        ]),
+        collapsed || journal === null || journal.pending !== true ? null : createElement('div', { key: 'journalBanner', className: 'ecp_revertBanner' }, [
+          createElement('span', { key: 'text', className: 'ecp_revertBannerText' },
+            journal.blocked === true
+              ? fill(t, 'journalBlocked', { path: journal.conflict || '' })
+              : fill(t, 'journalPending', { n: journal.steps || 0 })),
+          createElement('button', {
+            key: 'resume',
+            type: 'button',
+            className: 'ecp_btn',
+            disabled: journalBusy,
+            onClick: function () { settleJournal(true) },
+          }, t('journalResume')),
+          createElement('button', {
+            key: 'discard',
+            type: 'button',
+            className: 'ecp_btn',
+            disabled: journalBusy,
+            onClick: function () { settleJournal(false) },
+          }, t('journalDiscard')),
         ]),
         collapsed || latestBatch === null ? null : createElement('div', { key: 'revertBanner', className: 'ecp_revertBanner' }, [
           createElement('span', { key: 'text', className: 'ecp_revertBannerText' },
@@ -2342,6 +2410,9 @@ window.__ModuleLoader__.load({
               createElement('span', { key: 'text' }, t('cryptoOn')),
             ]),
             createElement('div', { key: 'hint', className: 'ecp_settingsHint' }, t('cryptoHint')),
+            stats.crypto && stats.crypto.mixed === true
+              ? createElement('div', { key: 'mixed', className: 'ecp_storageWarn' }, t('cryptoMixed'))
+              : null,
             stats.crypto && stats.crypto.enabled
               ? createElement('div', { key: 'state', className: 'ecp_storageHint' },
                 fill(t, 'cryptoState', {
@@ -2479,6 +2550,10 @@ window.__ModuleLoader__.load({
         cleanAll: function () { return call('undo', '*', -999999) },
         rotateKey: function () { return call('undo', 'key', -999995) },
         redoBatch: function (batch) { return call('undo', 'batch:' + batch, -999994) },
+        // A restore interrupted by a crash: read it, then let the user choose.
+        journal: function () { return call('get', 'journal', -999992) },
+        resumeJournal: function () { return call('undo', 'journal:resume', -999992) },
+        discardJournal: function () { return call('undo', 'journal:discard', -999991) },
       }
 
       var openReview = function (coordinates, index) {

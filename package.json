@@ -64,7 +64,7 @@
   },
   "scripts": {
     "check": "node --check index.mjs && node --check typert.host.mjs && node --check lib/store.mjs && node --check lib/service.mjs && node --check lib/wire.mjs && node --check lib/baseline.mjs && node --check lib/gitbase.mjs && node --check lib/vault.mjs && node --check client/index.js",
-    "test": "node --test test/store.test.mjs test/baseline.test.mjs test/gitbase.test.mjs test/vault.test.mjs"
+    "test": "node --test test/store.test.mjs test/baseline.test.mjs test/gitbase.test.mjs test/vault.test.mjs test/journal.test.mjs"
   },
   "publishConfig": {
     "access": "public"

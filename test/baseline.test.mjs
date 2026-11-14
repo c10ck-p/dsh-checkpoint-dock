@@ -120,3 +120,26 @@ test('a moved file whose bytes changed is not called a rename', () => {
   ])
   assert.equal(changes[1].renamedFrom, undefined)
 })
+
+test('one deleted file explains only one new file', () => {
+  const same = Buffer.from('same\n')
+  const changes = pairRenames([
+    { absolute: 'D:/w/a.txt', before: same, after: null },
+    { absolute: 'D:/w/b.txt', before: null, after: same },
+    { absolute: 'D:/w/c.txt', before: null, after: same },
+  ])
+  const sources = changes.filter((change) => change.renamedFrom !== undefined).map((change) => change.renamedFrom)
+  assert.equal(sources.length, 1)
+  assert.equal(sources[0], 'D:/w/a.txt')
+})
+
+test('a large change set skips rename pairing instead of going quadratic', () => {
+  const changes = []
+  for (let index = 0; index < 300; index += 1) {
+    changes.push({ absolute: `D:/w/old-${index}.txt`, before: Buffer.from(`x${index}\n`), after: null })
+    changes.push({ absolute: `D:/w/new-${index}.txt`, before: null, after: Buffer.from(`x${index}\n`) })
+  }
+  assert.equal(changes.length, 600)
+  const paired = pairRenames(changes)
+  assert.equal(paired.filter((change) => change.renamedFrom !== undefined).length, 0)
+})

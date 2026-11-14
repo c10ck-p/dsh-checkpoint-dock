@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- An interrupted restore that finds a file edited in the meantime now stops instead of overwriting it: the dock shows a banner saying which file moved, with "继续恢复" to apply the recorded pre-images anyway and "放弃这次恢复" to keep the file as it is. Before this, the next start replayed the journal unconditionally.
+
+- A file row marks changes that came from outside DSH's file tools with a small 外部 tag, so a checkpoint written by a shell command or a script is distinguishable at a glance from one the agent made with `write`/`edit`.
+
+- Turning encryption off while sealed blobs are still around now shows a notice in the settings: the old content keeps opening, but new writes go back to plaintext.
+
+### Fixed
+
+- The restore journal now records the expected hash of every target before replacing it, and is flushed to disk (file, then the directory) before the first file is touched. A crash can therefore neither replay the journal onto a file the user edited afterwards nor lose an unflushed journal.
+
+### Performance
+
+- Rename pairing buckets deletions by size and lets each one explain at most one new file, instead of comparing every deletion against every creation; above 500 changes in a turn it skips pairing rather than going quadratic.
+
 ## 0.2.0
 
 ### Added

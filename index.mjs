@@ -245,6 +245,7 @@ export async function apply(ctx, config) {
         prompt: latestPrompt(session),
         before: change.before === null ? { exists: false, buffer: null } : { exists: true, buffer: change.before },
         renamedFrom: change.renamedFrom ?? '',
+        origin: 'external',
       })
     }
   }
@@ -269,6 +270,7 @@ export async function apply(ctx, config) {
         turn,
         absolute,
         prompt: latestPrompt(session),
+        origin: 'tool',
       })
     } catch (error) {
       warn(error)
