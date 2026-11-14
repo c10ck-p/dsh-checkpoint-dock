@@ -243,6 +243,47 @@ test('the storage warning defaults on and keeps its limit in range', async () =>
   assert.equal((await reopened.readConfig()).warn, false)
 })
 
+test('every listed checkpoint carries the bytes it owns on disk', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+
+  const write = async (turn, body) => {
+    const file = path.join(cwd, `turn-${turn}.txt`)
+    await fs.writeFile(file, body)
+    await store.capture({ sessionId: 'session-list', cwd, turn, absolute: file, prompt: '' })
+    await fs.writeFile(file, `${body}
+more\n`)
+    await store.seal('session-list', turn, 0)
+  }
+  const digits = (count) => {
+    let text = ''
+    let seed = 11
+    while (text.length < count) {
+      seed = (seed * 1103515245 + 12345) % 2147483648
+      text += String(seed).padStart(10, '0')
+    }
+    return text.slice(0, count)
+  }
+  // The second turn shares the first one's body, so its one and only blob is
+  // already claimed — the row must read zero, not count it twice.
+  await write(1, digits(1500))
+  await write(2, digits(1500))
+
+  const listed = await store.listAll()
+  assert.equal(listed.total, 2)
+  const first = listed.records.find((record) => record.turn === 1)
+  const second = listed.records.find((record) => record.turn === 2)
+  assert.ok(first.bytes > 0)
+  assert.equal(second.bytes, 0)
+
+  const stats = await store.stats('*')
+  const sum = listed.records.reduce((total, record) => total + record.bytes, 0)
+  assert.ok(sum <= stats.bytes)
+  assert.ok(stats.bytes > 0)
+})
+
 test('auto clean trims an over-limit session and respects the setting', async () => {
   const { home, root } = await tempHome()
   const cwd = path.join(home, 'workspace')

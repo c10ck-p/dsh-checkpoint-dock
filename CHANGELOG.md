@@ -10,6 +10,8 @@
 
 - Turning encryption off while sealed blobs are still around now shows a notice in the settings: the old content keeps opening, but new writes go back to plaintext.
 
+- Every row in the settings overview now shows how much disk its checkpoint takes. Content shared by two checkpoints is charged once, to the earlier one, so the rows add up to at most the storage total.
+
 - The Config tab can watch the store size: a warning, on by default, fires once checkpoints use more than 500 MB (100 MB / 250 MB / 500 MB / 1 GB / 2 GB). It shows on the Storage tab and as one line in the dock under the input; it only reports, nothing is cleaned automatically.
 
 ### Fixed
