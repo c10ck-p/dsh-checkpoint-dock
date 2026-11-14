@@ -978,3 +978,45 @@ test('a record with approximate counts is repaired the first time it is opened',
   const healed = (await store.list('session-fix')).records[0]
   assert.deepEqual([healed.added, healed.deleted], [1, 1])
 })
+
+test('a whole session can be cleared without hurting the others', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const shared = path.join(cwd, 'shared.txt')
+  const own = path.join(cwd, 'own.txt')
+
+  // Both sessions capture the same pre-image, so one blob backs both records.
+  await fs.writeFile(shared, 'same\n')
+  await store.capture({ sessionId: 'session-old', cwd, turn: 1, absolute: shared, prompt: '' })
+  await store.capture({ sessionId: 'session-new', cwd, turn: 1, absolute: shared, prompt: '' })
+  await fs.writeFile(shared, 'changed\n')
+  await store.seal('session-old', 1, 0)
+  await store.seal('session-new', 1, 0)
+  await store.capture({ sessionId: 'session-old', cwd, turn: 2, absolute: own, prompt: '' })
+  await fs.writeFile(own, 'old work\n')
+  await store.seal('session-old', 2, 0)
+
+  const before = await store.stats('session-new')
+  const result = await store.purgeSession('session-old')
+  assert.equal(result.ok, true, result.message)
+  assert.equal(result.records, 2)
+
+  // The cleared session is gone, records directory included.
+  assert.deepEqual(await store.loadAll('session-old'), [])
+  await assert.rejects(fs.stat(path.dirname(store.recordFile('session-old', 0))))
+
+  // The survivor still lists and restores, because its blobs were shared.
+  const after = await store.stats('session-new')
+  assert.equal(after.records, 1)
+  assert.equal(after.bytes, before.bytes)
+  assert.equal((await store.undo('session-new', 1)).ok, true)
+  assert.equal(await fs.readFile(shared, 'utf8'), 'same\n')
+
+  // Clearing a session that is still recording is refused.
+  await store.capture({ sessionId: 'session-new', cwd, turn: 2, absolute: shared, prompt: '' })
+  const open = await store.purgeSession('session-new')
+  assert.equal(open.ok, false)
+  assert.equal(open.code, 'not-ready')
+})

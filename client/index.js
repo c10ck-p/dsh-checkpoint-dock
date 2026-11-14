@@ -240,6 +240,9 @@ window.__ModuleLoader__.load({
         storagePinned: '{n} 条已钉住，不参与清理',
         storagePolicy: '只清理最早的记录内容，保留最近 {n} 条和所有钉住项；清理后记录仍在，但不能再查看/撤销/重做。',
         clean: '清理旧内容',
+        purgeOne: '清空',
+        confirmPurgeOne: '确认清空',
+        purgeOneHint: '删除这个会话的全部检查点和它们的保存内容',
         cleanRow: '清理',
         confirmCleanRow: '确认清理',
         cleanRowHint: '只删除这一条的保存内容，记录本身和计数还在',
@@ -387,6 +390,9 @@ window.__ModuleLoader__.load({
         storagePinned: '{n} pinned records are never cleaned',
         storagePolicy: 'Only the oldest content is cleaned; the latest {n} and all pinned content stay. Records remain, but their diff/undo/redo stop working.',
         clean: 'Clean old content',
+        purgeOne: 'Clear',
+        confirmPurgeOne: 'Confirm clear',
+        purgeOneHint: 'Delete every checkpoint of this session and what it saved',
         cleanRow: 'Clean',
         confirmCleanRow: 'Confirm clean',
         cleanRowHint: 'Drop only this checkpoint\'s saved content; the row and its counts stay',
@@ -538,6 +544,9 @@ window.__ModuleLoader__.load({
       '.ecp_legendLabel{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary)}',
       '.ecp_legendSize{font-family:var(--ds-font-family-code);color:var(--dsw-alias-label-tertiary);flex:0 0 auto}',
       '.ecp_legendPct{font-family:var(--ds-font-family-code);color:var(--dsw-alias-label-tertiary);flex:0 0 auto;width:44px;text-align:right}',
+      '.ecp_legendClean{flex:0 0 auto;background:none;border:.5px solid var(--dsw-alias-border-light);border-radius:4px;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:15px;padding:0 5px;cursor:pointer;font-family:inherit}',
+      '.ecp_legendClean:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}',
+      '.ecp_legendClean.is-confirm{color:var(--dsw-alias-state-error-primary,#e5577b);border-color:currentColor}',
       '.ecp_storageToggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:11px !important}',
       '.ecp_storageCheck{margin:0;accent-color:var(--dsw-alias-state-accent-primary,#5b8def);cursor:pointer}',
       '.ecp_storagePicker{position:relative;min-width:96px}',
@@ -1865,6 +1874,13 @@ window.__ModuleLoader__.load({
       var histBusyState = useState('')
       var histBusy = histBusyState[0]
       var setHistBusy = histBusyState[1]
+      // Whole-session purge from the storage pie legend.
+      var purgeSessionState = useState('')
+      var purgeSession = purgeSessionState[0]
+      var setPurgeSession = purgeSessionState[1]
+      var purgeSessionBusyState = useState('')
+      var purgeSessionBusy = purgeSessionBusyState[0]
+      var setPurgeSessionBusy = purgeSessionBusyState[1]
       var keepPickerRef = useRef(null)
       var warnOpenState = useState(false)
       var warnOpen = warnOpenState[0]
@@ -1978,6 +1994,36 @@ window.__ModuleLoader__.load({
       useEffect(function () {
         if (tab === 'config' || tab === 'storage') loadStats()
       }, [tab, loadStats])
+
+      useEffect(function () {
+        if (purgeSession === '') return undefined
+        var timer = setTimeout(function () { setPurgeSession('') }, 4000)
+        return function () { clearTimeout(timer) }
+      }, [purgeSession])
+
+      var runPurgeSession = function (id) {
+        if (purgeSessionBusy !== '') return
+        if (purgeSession !== id) {
+          setPurgeSession(id)
+          return
+        }
+        setPurgeSessionBusy(id)
+        setError('')
+        api.purgeSession(id).then(function (result) {
+          setPurgeSessionBusy('')
+          setPurgeSession('')
+          if (!result || result.ok !== true) {
+            setError(result && result.message ? result.message : t('actionFailed'))
+            return
+          }
+          loadHistory()
+          loadStats()
+        }).catch(function (failure) {
+          setPurgeSessionBusy('')
+          setPurgeSession('')
+          setError(failure && failure.message ? failure.message : t('actionFailed'))
+        })
+      }
 
       useEffect(function () {
         if (histClean === '') return undefined
@@ -2450,6 +2496,16 @@ window.__ModuleLoader__.load({
               entry.archived ? createElement('span', { key: 'archived', className: 'ecp_archivedTag' }, t('archived')) : null,
               createElement('span', { key: 'size', className: 'ecp_legendSize' }, formatSize(entry.bytes)),
               createElement('span', { key: 'pct', className: 'ecp_legendPct' }, format(t, 'storagePercent', percent)),
+              entry.id
+                ? createElement('button', {
+                  key: 'purge',
+                  type: 'button',
+                  className: 'ecp_legendClean' + (purgeSession === entry.id ? ' is-confirm' : ''),
+                  disabled: purgeSessionBusy !== '',
+                  title: purgeSession === entry.id ? t('purgeOneHint') : t('purgeOneHint'),
+                  onClick: function () { runPurgeSession(entry.id) },
+                }, purgeSession === entry.id ? t('confirmPurgeOne') : t('purgeOne'))
+                : null,
             ])
           })),
         ])
@@ -2769,6 +2825,8 @@ window.__ModuleLoader__.load({
         // One row of the overview: the session rides the prefix so the turn
         // stays the real turn number.
         cleanRecord: function (sessionId, turn) { return call('undo', 'clean:' + sessionId, turn) },
+        // Whole-session purge from the storage legend.
+        purgeSession: function (sessionId) { return call('undo', 'purge:' + sessionId, -999993) },
         rotateKey: function () { return call('undo', 'key', -999995) },
         redoBatch: function (batch) { return call('undo', 'batch:' + batch, -999994) },
         // A restore interrupted by a crash: read it, then let the user choose.
