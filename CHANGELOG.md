@@ -29,6 +29,8 @@
 - The restore journal now records the expected hash of every target before replacing it, and is flushed to disk (file, then the directory) before the first file is touched. A crash can therefore neither replay the journal onto a file the user edited afterwards nor lose an unflushed journal.
 
 ### Performance
+- 存储统计不再逐个探测 blob 文件：一次目录扫描建索引，写入/迁移/删除时增量更新；`stats` 从 ~133 ms 降到 ~9 ms（53 条记录 / 209 个 blob）。
+- 记录文件按修改时间和大小缓存解析结果，`list` 从 ~12.6 ms 降到 ~5.7 ms，`listAll` 从 ~73 ms 降到 ~8.5 ms。
 
 - Stored file contents are compressed before they hit the disk: zstd when the runtime has it, gzip otherwise, and only when that actually saves space (a small or already-random file is kept exactly as it is). A blob carries a short `DSKZ` header naming the codec, so blobs written by older builds keep opening without a migration, and packing runs before encryption rather than after — ciphertext has nothing to compress. The backlog is repacked in small batches after each turn instead of all at once; on this machine's existing store the same content went from 7.66 MB to 2.11 MB.
 

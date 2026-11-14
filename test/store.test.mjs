@@ -1050,3 +1050,58 @@ test('clearing everything empties the store and stops while a turn is open', asy
   assert.equal(refused.ok, false)
   assert.equal(refused.code, 'not-ready')
 })
+
+test('cached sizes follow writes, migration and deletion', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const file = path.join(cwd, 'notes.txt')
+  const body = 'repeat me please\n'.repeat(200)
+
+  await fs.writeFile(file, 'start\n')
+  await store.capture({ sessionId: 'session-a', cwd, turn: 1, absolute: file, prompt: '' })
+  await fs.writeFile(file, body)
+  await store.seal('session-a', 1, 0)
+
+  const first = await store.stats('session-a')
+  assert.ok(first.bytes > 0)
+
+  // Turning encryption on moves the same content into sealed files; the cached
+  // table must not keep reporting the old plaintext sizes.
+  await store.setConfig({ encrypt: true })
+  const migrated = await store.migrateBlobs(1000)
+  assert.ok(migrated.sealed > 0)
+  const sealedStats = await store.stats('session-a')
+  assert.ok(sealedStats.bytes > 0)
+  assert.equal(sealedStats.crypto.sealed > 0, true)
+
+  // Reading still round-trips, so the sizes and the bytes agree.
+  assert.equal((await store.undo('session-a', 1)).ok, true)
+  assert.equal(await fs.readFile(file, 'utf8'), 'start\n')
+})
+
+test('a cached record never leaks edits between reads', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const file = path.join(cwd, 'a.txt')
+
+  await fs.writeFile(file, 'one\n')
+  await store.capture({ sessionId: 'session-a', cwd, turn: 1, absolute: file, prompt: '' })
+  await fs.writeFile(file, 'two\n')
+  await store.seal('session-a', 1, 0)
+
+  const [first] = await store.loadAll('session-a')
+  first.pinned = true
+  first.files[0].path = 'tampered'
+  const [second] = await store.loadAll('session-a')
+  assert.equal(second.pinned, false)
+  assert.equal(second.files[0].path, file)
+
+  // A real save still shows up on the next read, cache notwithstanding.
+  await store.pin('session-a', 1)
+  const [third] = await store.loadAll('session-a')
+  assert.equal(third.pinned, true)
+})
