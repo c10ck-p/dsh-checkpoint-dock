@@ -282,6 +282,15 @@ window.__ModuleLoader__.load({
         revertUndone: '已回退到第 {turn} 轮之后，{count} 条检查点被撤销',
         undoRevert: '反悔这次回退',
         busyTurn: '这一轮还在跑，等它结束再操作',
+        noteUndo: '已撤销第 {turn} 轮',
+        noteRevert: '已回退到第 {turn} 轮结束时的状态',
+        noteFiles: '{n} 个文件',
+        tellAgent: '告诉 AI',
+        noteDismiss: '知道了',
+        noteText: '我刚撤销了第 {turn} 轮的检查点（{files}）。工作区已经回到那一轮之前，请重新读取这些文件后再继续。',
+        noteTextRevert: '我刚把工作区回退到第 {turn} 轮结束时的状态（涉及 {files}）。请重新读取这些文件后再继续。',
+        noteInserted: '已写进输入框',
+        noteUnavailable: '这个版本的输入框不支持从外部插入文字，请手动说明。',
         journalPending: '上次恢复被中断，还有 {n} 个文件没写完。',
         journalBlocked: '{path} 在恢复中断后又被修改过，继续会覆盖它。',
         journalResume: '继续恢复',
@@ -434,6 +443,15 @@ window.__ModuleLoader__.load({
         revertUndone: 'Reverted past turn {turn}; {count} checkpoints were undone',
         undoRevert: 'Take that revert back',
         busyTurn: 'Wait for this turn to finish before touching checkpoints',
+        noteUndo: 'Undid turn {turn}',
+        noteRevert: 'Reverted to the end of turn {turn}',
+        noteFiles: '{n} files',
+        tellAgent: 'Tell the agent',
+        noteDismiss: 'Got it',
+        noteText: 'I just undid the checkpoint for turn {turn} ({files}). The workspace is back to how it was before that turn — please re-read those files before continuing.',
+        noteTextRevert: 'I just reverted the workspace to the end of turn {turn} ({files}). Please re-read those files before continuing.',
+        noteInserted: 'Added to the input box',
+        noteUnavailable: 'This input box does not accept text from outside; please say it manually.',
         journalPending: 'The last restore was interrupted; {n} files are still pending.',
         journalBlocked: '{path} changed after the interruption — continuing would overwrite it.',
         journalResume: 'Finish the restore',
@@ -707,6 +725,12 @@ window.__ModuleLoader__.load({
       var recordsState = useState([])
       var records = recordsState[0]
       var setRecords = recordsState[1]
+      var noteState = useState(null)
+      var note = noteState[0]
+      var setNote = noteState[1]
+      var noteFlashState = useState('')
+      var noteFlash = noteFlashState[0]
+      var setNoteFlash = noteFlashState[1]
       var undoingState = useState(false)
       var undoing = undoingState[0]
       var setUndoing = undoingState[1]
@@ -1354,6 +1378,7 @@ window.__ModuleLoader__.load({
             return
           }
           setShowDiff(false)
+          setNote({ kind: 'undo', turn: selected.turn, files: files.map(function (file) { return file.path }) })
           refresh()
         }).catch(function (failure) {
           setError(failure && failure.message ? failure.message : t('actionFailed'))
@@ -1384,6 +1409,14 @@ window.__ModuleLoader__.load({
           }
           setBusy('')
           setSelectedTurn(selected.turn)
+          var touched = []
+          for (var noteIndex = 0; noteIndex < newerList.length; noteIndex += 1) {
+            var noteFiles = Array.isArray(newerList[noteIndex].files) ? newerList[noteIndex].files : []
+            for (var fileIndex = 0; fileIndex < noteFiles.length; fileIndex += 1) {
+              if (touched.indexOf(noteFiles[fileIndex].path) < 0) touched.push(noteFiles[fileIndex].path)
+            }
+          }
+          setNote({ kind: 'revert', turn: selected.turn, files: touched })
           refresh()
         }).catch(function (failure) {
           setBusy('')
@@ -1584,6 +1617,35 @@ window.__ModuleLoader__.load({
       // The crash journal is applied automatically when the files still match.
       // When one of them changed, only the user can decide: overwrite it or
       // drop the journal.
+      var noteFilesText = function (paths) {
+        var head = paths.slice(0, 3).join('、')
+        return paths.length > 3 ? head + ' 等 ' + paths.length + ' 个' : head
+      }
+
+      // The agent has no way to hear about an undo, and a message cannot be put
+      // into its context from a plugin. It can, however, be put into the box the
+      // user sends from — one click, and the agent learns the files moved.
+      var tellAgent = function () {
+        if (note === null) return
+        var text = fill(t, note.kind === 'revert' ? 'noteTextRevert' : 'noteText', {
+          turn: displayTurn(note.turn),
+          files: noteFilesText(note.files),
+        })
+        var input = props.input
+        if (input === undefined || input === null || typeof input.captureInsertion !== 'function' || typeof input.insertText !== 'function') {
+          setNoteFlash(t('noteUnavailable'))
+          return
+        }
+        try {
+          var span = input.captureInsertion()
+          input.insertText(text, span)
+          setNote(null)
+          setNoteFlash(t('noteInserted'))
+        } catch (failure) {
+          setNoteFlash(failure && failure.message ? failure.message : t('noteUnavailable'))
+        }
+      }
+
       var settleJournal = function (resume) {
         if (journalBusy) return
         setJournalBusy(true)
@@ -1739,6 +1801,24 @@ window.__ModuleLoader__.load({
             title: turnLocked ? t('busyTurn') : undefined,
             onClick: function () { settleJournal(false) },
           }, t('journalDiscard')),
+        ]),
+        collapsed || note === null ? null : createElement('div', { key: 'noteBanner', className: 'ecp_revertBanner' }, [
+          createElement('span', { key: 'text', className: 'ecp_revertBannerText' },
+            fill(t, note.kind === 'revert' ? 'noteRevert' : 'noteUndo', { turn: displayTurn(note.turn) }) +
+              ' · ' + format(t, 'noteFiles', note.files.length) +
+              (noteFlash === '' ? '' : ' · ' + noteFlash)),
+          createElement('button', {
+            key: 'tell',
+            type: 'button',
+            className: 'ecp_btn',
+            onClick: tellAgent,
+          }, t('tellAgent')),
+          createElement('button', {
+            key: 'dismiss',
+            type: 'button',
+            className: 'ecp_btn',
+            onClick: function () { setNote(null); setNoteFlash('') },
+          }, t('noteDismiss')),
         ]),
         collapsed || latestBatch === null ? null : createElement('div', { key: 'revertBanner', className: 'ecp_revertBanner' }, [
           createElement('span', { key: 'text', className: 'ecp_revertBannerText' },
