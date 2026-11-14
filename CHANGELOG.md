@@ -1,48 +1,50 @@
 # Changelog
 
-## Unreleased
-
-### Added
-- 撤销、重做或回退之后，Host 半体会在 agent 的下一个步骤前注入一条上下文说明（列出被改动的文件、要求重新读取），dock 上同时显示「AI 下一步会收到这条说明」。它不唤醒空闲的 agent，也不冒充用户消息；30 分钟没用掉就作废。此前只能在输入框里替用户写字，而输入框并不总是接受外部插入。
-
-- After an undo, redo or revert the host half appends one context note ahead of the agent's next step (the files that moved, and a request to re-read them); the dock says "the agent will see this at its next step". The note never wakes an idle agent and never impersonates a user message, and it expires after 30 minutes.
-
-- 总览的会话下拉旁边多了清除按钮：选「全部会话」时清空全部检查点，选中某个对话时只清这个对话的；两次点击确认，其他会话共用的内容保留。
-
-- An interrupted restore that finds a file edited in the meantime now stops instead of overwriting it: the dock shows a banner saying which file moved, with "继续恢复" to apply the recorded pre-images anyway and "放弃这次恢复" to keep the file as it is. Before this, the next start replayed the journal unconditionally.
-
-- A file row marks changes that came from outside DSH's file tools with a small 外部 tag, so a checkpoint written by a shell command or a script is distinguishable at a glance from one the agent made with `write`/`edit`.
-
-- Turning encryption off while sealed blobs are still around now shows a notice in the settings: the old content keeps opening, but new writes go back to plaintext.
-
-- Every row in the settings overview now shows how much disk its checkpoint takes. Content shared by two checkpoints is charged once, to the earlier one, so the rows add up to at most the storage total.
-
-- The Config tab can watch the store size: a warning, on by default, fires once checkpoints use more than 500 MB (100 MB / 250 MB / 500 MB / 1 GB / 2 GB). It shows on the Storage tab and as one line in the dock under the input; it only reports, nothing is cleaned automatically.
+## 0.2.1
 
 ### Added
 
-- Every row in Settings → Checkpoints → Overview has a 清理 button now: two clicks drop just that checkpoint's saved content, leaving the row and its counts in place.
-- A pinned checkpoint now keeps one pre-image per file that changed after it, so "回退到此" still works even after the checkpoints in between were cleaned up. Unpinning drops the anchor and its bytes.
+- After an undo, redo or revert the host half puts one context note in front of the agent at its next step: the turn that moved, the files that changed, and a request to re-read them. The dock says "the agent will see this at its next step". The note is a `checkpoint-dock` notice — it never wakes an idle agent, never impersonates a user message, is written in the language the session is already using, and is dropped if unused for 30 minutes. DSH still refuses writes to files that changed since they were read (`FS_STALE_VERSION`), so the two together close the "the model keeps writing from stale bytes" hole. This replaces the earlier "tell the agent" button, which inserted text into the composer and did nothing on inputs that refuse outside insertion.
 
-### Performance
+- Every row in Settings → Checkpoints → Overview shows the disk its checkpoint occupies. Content shared by two checkpoints is charged once, to the earlier one, so the rows add up to at most the storage total.
 
-- The turn-start scan reuses the bytes of files whose size and mtime still match the previous scan, so only the handful that changed is read again; the same snapshot now also catches changes made between two turns (a deleted folder, a file edited while the agent was idle) instead of silently absorbing them.
+- Each overview row has its own **Clean** button: two clicks drop just that checkpoint's saved content and keep the row and its counts. Pinned, open and undone rows refuse with a reason.
+
+- The session picker in **Overview** carries a clear button: with "All sessions" selected it empties the whole store; picking one conversation switches it to "Clear this conversation". Both take a second click, and content shared with other sessions is kept.
+
+- A pinned checkpoint now keeps one pre-image per file that changed after it, so "Revert to here" still works after the checkpoints in between have been cleaned. Unpinning releases that anchor and its bytes.
+
+- Config can watch the store size: a warning, on by default at 500 MB (100 MB / 250 MB / 500 MB / 1 GB / 2 GB), shows on the Storage tab and as one line in the dock once checkpoints exceed it. It only reports; nothing is deleted.
+
+- A file row marks changes that came from outside DSH's file tools with a small "external" tag, so a checkpoint written by a shell command or a script is distinguishable at a glance from one the agent made with `write`/`edit`.
+
+- Turning encryption off while sealed blobs are still on disk now shows a notice: the old content keeps opening, but new writes return to plaintext.
+
+### Changed
+
+- Checkpoint actions are off the table while a turn is running: keep, undo, redo, revert, pin and applying an interrupted restore are disabled with a one-line reason, because a restore mid-turn fights the agent's own writes. Read-only actions (view all changes, browse history) stay available.
 
 ### Fixed
 
-- A checkpoint whose content was cleaned up no longer offers "回退到此": the button is disabled and explains that the revert needs content that no longer exists. The host already refused such a revert before touching anything, but the click looked like it should work.
+- An interrupted restore that finds a file edited in the meantime now stops instead of overwriting it: the dock shows a banner naming the file, with "Resume" to apply the recorded pre-images anyway and "Discard" to keep the file as it is. Before this, the next start replayed the journal unconditionally.
 
-- The "+N −M" on a file row and the patch you get when expanding it now come from one diff, so they always agree. Before, the row counted a large file approximately (it fell back to the line-count difference once the comparison matrix got too big), while the panel always showed every line between the first and the last change — which is why a 127-line edit could read as "+121 −0" on the row and "+2144 −2023" in the patch. The diff is now Myers' algorithm with a bounded depth, so a scattered edit is counted by the lines it actually touches; a rewrite too large to align is reported as one coarse block, consistently in both places. Records sealed by an older build repair their counts the first time the patch is opened.
+- The restore journal records the expected hash of every target before replacing it and is flushed to disk (file, then directory) before the first file is touched, so a crash can neither replay the journal onto a file edited afterwards nor lose an unflushed one.
 
-- The restore journal now records the expected hash of every target before replacing it, and is flushed to disk (file, then the directory) before the first file is touched. A crash can therefore neither replay the journal onto a file the user edited afterwards nor lose an unflushed journal.
+- A checkpoint whose content was cleaned up no longer offers "Revert to here": the button is disabled and explains that the revert needs content that no longer exists. The host already refused such a revert before touching anything, but the click looked like it should work.
+
+- The "+N −M" on a file row and the patch rendered when expanding it now come from one diff, so they always agree. The row used to count a large file approximately (falling back to the line-count difference once the comparison matrix grew too large) while the panel showed every line between the first and last change — a 127-line edit could read as "+121 −0" on the row and "+2144 −2023" in the patch. The diff is now Myers' algorithm with a bounded depth: a scattered edit is counted by the lines it actually touches, a rewrite too large to align is reported as one coarse block, and records sealed by an older build repair their counts the first time the patch is opened.
+
+- Rename pairing buckets deletions by size and lets each explain at most one new file, instead of comparing every deletion against every creation; above 500 changes in a turn it skips pairing rather than going quadratic.
 
 ### Performance
-- 存储统计不再逐个探测 blob 文件：一次目录扫描建索引，写入/迁移/删除时增量更新；`stats` 从 ~133 ms 降到 ~9 ms（53 条记录 / 209 个 blob）。
-- 记录文件按修改时间和大小缓存解析结果，`list` 从 ~12.6 ms 降到 ~5.7 ms，`listAll` 从 ~73 ms 降到 ~8.5 ms。
 
-- Stored file contents are compressed before they hit the disk: zstd when the runtime has it, gzip otherwise, and only when that actually saves space (a small or already-random file is kept exactly as it is). A blob carries a short `DSKZ` header naming the codec, so blobs written by older builds keep opening without a migration, and packing runs before encryption rather than after — ciphertext has nothing to compress. The backlog is repacked in small batches after each turn instead of all at once; on this machine's existing store the same content went from 7.66 MB to 2.11 MB.
+- Stored file contents are compressed before they hit the disk: zstd when the runtime has it, gzip otherwise, and only when that actually saves space (small or already-random files are stored exactly as they are). A blob carries a short `DSKZ` header naming the codec, so blobs written by older builds keep opening without a migration, and packing runs before encryption rather than after — ciphertext has nothing to compress. The backlog is repacked in small batches after each turn; on this machine's existing store the same content went from 7.66 MB to 2.11 MB.
 
-- Rename pairing buckets deletions by size and lets each one explain at most one new file, instead of comparing every deletion against every creation; above 500 changes in a turn it skips pairing rather than going quadratic.
+- The turn-start scan reuses the bytes of files whose size and mtime still match the previous scan, so only the handful that changed is read again (9.9 ms → 2.6 ms on a 1 MB tree); the same snapshot now also catches changes made between two turns — a deleted folder, a file edited while the agent was idle — instead of silently absorbing them into the next baseline.
+
+- Storage statistics no longer probe every blob file: one directory walk builds an index, and writes, migrations and deletions keep it current. `stats` went from ~133 ms to ~9 ms with 53 checkpoints and 209 blobs.
+
+- Records are cached by mtime and size instead of being parsed on every poll: `list` went from ~12.6 ms to ~1.1 ms, `listAll` from ~73 ms to ~10 ms.
 
 ## 0.2.0
 
