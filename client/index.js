@@ -1631,18 +1631,18 @@ window.__ModuleLoader__.load({
           turn: displayTurn(note.turn),
           files: noteFilesText(note.files),
         })
-        var input = props.input
-        if (input === undefined || input === null || typeof input.captureInsertion !== 'function' || typeof input.insertText !== 'function') {
-          setNoteFlash(t('noteUnavailable'))
-          return
-        }
+        var inserted = false
         try {
-          var span = input.captureInsertion()
-          input.insertText(text, span)
-          setNote(null)
-          setNoteFlash(t('noteInserted'))
+          if (typeof props.composeText === 'function') inserted = props.composeText(text) === true
         } catch (failure) {
           setNoteFlash(failure && failure.message ? failure.message : t('noteUnavailable'))
+          return
+        }
+        if (inserted) {
+          setNote(null)
+          setNoteFlash(t('noteInserted'))
+        } else {
+          setNoteFlash(t('noteUnavailable'))
         }
       }
 
@@ -2918,7 +2918,26 @@ window.__ModuleLoader__.load({
           order: 100,
           locale: NS,
           inject: function (sessionId) {
-            return { api: api, t: t, openReview: openReview, sessionId: sessionId, sessions: ctx.sessions }
+            return {
+              api: api,
+              t: t,
+              openReview: openReview,
+              sessionId: sessionId,
+              sessions: ctx.sessions,
+              // The composer is the only channel a plugin can put words in front
+              // of the agent without speaking for the user; the shell's editor
+              // exposes one revision-guarded insertion, reached through this
+              // session's conversation service.
+              composeText: function (text) {
+                var scope = ctx.sessions.scope(sessionId)
+                if (scope === undefined) return false
+                var conversation = scope.get('conversation')
+                if (conversation === undefined || conversation.input === undefined) return false
+                var actions = conversation.input.for(scope)
+                if (actions === undefined || typeof actions.captureInsertion !== 'function' || typeof actions.insertText !== 'function') return false
+                return actions.insertText(text, actions.captureInsertion()) !== false
+              },
+            }
           },
         }, EditCheckpointsDock)
       })
