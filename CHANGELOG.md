@@ -18,6 +18,8 @@
 
 ### Performance
 
+- Stored file contents are compressed before they hit the disk: zstd when the runtime has it, gzip otherwise, and only when that actually saves space (a small or already-random file is kept exactly as it is). A blob carries a short `DSKZ` header naming the codec, so blobs written by older builds keep opening without a migration, and packing runs before encryption rather than after — ciphertext has nothing to compress. The backlog is repacked in small batches after each turn instead of all at once; on this machine's existing store the same content went from 7.66 MB to 2.11 MB.
+
 - Rename pairing buckets deletions by size and lets each one explain at most one new file, instead of comparing every deletion against every creation; above 500 changes in a turn it skips pairing rather than going quadratic.
 
 ## 0.2.0

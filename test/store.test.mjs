@@ -278,8 +278,19 @@ test('the pie breakdown covers every session and adds up to the total', async ()
     await fs.writeFile(file, `${body} after\n`)
     await store.seal(sessionId, turn, 0)
   }
-  await write('session-big', 1, 'x'.repeat(2000))
-  await write('session-small', 1, 'y'.repeat(200))
+  // Digits from a fixed sequence: text, but not repetitive enough to compress
+  // to nothing, so the on-disk sizes keep the order of the bodies written.
+  const digits = (count) => {
+    let text = ''
+    let seed = 7
+    while (text.length < count) {
+      seed = (seed * 1103515245 + 12345) % 2147483648
+      text += String(seed).padStart(10, '0')
+    }
+    return text.slice(0, count)
+  }
+  await write('session-big', 1, digits(2000))
+  await write('session-small', 1, digits(200))
 
   const stats = await store.stats('*')
   assert.equal(stats.bySession.length, 2)
@@ -455,6 +466,82 @@ test('turning encryption on seals the blobs that were already stored', async () 
   const undo = await store.undo('session-f', 1)
   assert.equal(undo.ok, true, undo.message)
   assert.equal(await fs.readFile(file, 'utf8'), 'plain\n')
+})
+
+test('a compressible blob is packed on disk and still restores byte for byte', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'big.txt')
+  let original = ''
+  for (let index = 0; index < 300; index += 1) original += `row ${index}: repeated content, on purpose\n`
+  await fs.writeFile(file, original)
+
+  const store = new EditCheckpointStore(root)
+  await store.capture({ sessionId: 'session-h', cwd, turn: 1, absolute: file, prompt: '' })
+  await fs.writeFile(file, `${original}one more line\n`)
+  await store.seal('session-h', 1, 0)
+
+  const record = await store.load('session-h', 1)
+  assert.notEqual(record.files[0].beforeSha, null)
+  const stored = await store.blobSize(record.files[0].beforeSha)
+  assert.equal(stored.compressed, true, 'the before image should be packed')
+  assert.equal(stored.sealed, false)
+  assert.equal(stored.bytes < Buffer.byteLength(original) / 2, true)
+
+  const undo = await store.undo('session-h', 1)
+  assert.equal(undo.ok, true, undo.message)
+  assert.equal(await fs.readFile(file, 'utf8'), original)
+})
+
+test('packed blobs still work with encryption on', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'big.txt')
+  let original = ''
+  for (let index = 0; index < 300; index += 1) original += `row ${index}: repeated content, on purpose\n`
+  await fs.writeFile(file, original)
+
+  const store = new EditCheckpointStore(root)
+  await store.setConfig({ encrypt: true })
+  await store.capture({ sessionId: 'session-i', cwd, turn: 1, absolute: file, prompt: '' })
+  await fs.writeFile(file, `${original}one more line\n`)
+  await store.seal('session-i', 1, 0)
+
+  const record = await store.load('session-i', 1)
+  const stored = await store.blobSize(record.files[0].beforeSha)
+  assert.equal(stored.sealed, true)
+
+  const undo = await store.undo('session-i', 1)
+  assert.equal(undo.ok, true, undo.message)
+  assert.equal(await fs.readFile(file, 'utf8'), original)
+})
+
+test('the backlog migration packs plaintext blobs and leaves them readable', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'big.txt')
+  let original = ''
+  for (let index = 0; index < 300; index += 1) original += `row ${index}: repeated content, on purpose\n`
+  await fs.writeFile(file, original)
+
+  const store = new EditCheckpointStore(root)
+  await store.capture({ sessionId: 'session-j', cwd, turn: 1, absolute: file, prompt: '' })
+  const captured = await store.load('session-j', 1)
+  const hash = captured.files[0].beforeSha
+  // Pretend this blob came from a build that did not pack: plain file, no .zst.
+  const plainPath = store.blobFile(hash)
+  await fs.unlink(`${plainPath}.zst`).catch(() => {})
+  await fs.writeFile(plainPath, original)
+
+  const moved = await store.migrateBlobs(100)
+  assert.equal(moved.packed > 0, true)
+  const stat = await fs.stat(`${plainPath}.zst`)
+  assert.equal(stat.size < Buffer.byteLength(original) / 2, true)
+  assert.equal(await fs.stat(plainPath).then(() => true, () => false), false)
+  assert.equal((await store.readBlob(hash)).toString('utf8'), original)
 })
 
 test('a lost key makes content unavailable instead of unreadable garbage', async () => {
