@@ -622,3 +622,59 @@ test('a finished restore leaves no journal behind', async () => {
   assert.equal((await store.redo('session-j', 1)).ok, true)
   await assert.rejects(fs.stat(path.join(root, 'pending.json')), { code: 'ENOENT' })
 })
+
+test('the row counts and the patch counts come from the same diff', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'big.js')
+  const lines = Array.from({ length: 1500 }, (_, index) => `const v${index} = ${index}`)
+  await fs.writeFile(file, `${lines.join('\n')}\n`)
+
+  const store = new EditCheckpointStore(root)
+  await store.capture({ sessionId: 'session-big', cwd, turn: 1, absolute: file, prompt: 'edit' })
+  const next = lines.slice()
+  next.splice(10, 1)
+  next.splice(200, 0, 'inserted a', 'inserted b')
+  await fs.writeFile(file, `${next.join('\n')}\n`)
+  await store.seal('session-big', 1, 1)
+
+  const row = (await store.list('session-big')).records[0].files[0]
+  assert.equal(row.added, 2, 'a two-line insertion must not be counted as the whole span')
+  assert.equal(row.deleted, 1)
+
+  const diff = await store.diff('session-big', 1)
+  assert.equal(diff.files[0].added, row.added)
+  assert.equal(diff.files[0].deleted, row.deleted)
+  assert.ok(diff.files[0].patch.includes('+inserted a'))
+})
+
+test('a record with approximate counts is repaired the first time it is opened', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const file = path.join(cwd, 'wide.txt')
+  const lines = Array.from({ length: 400 }, (_, index) => `row ${index}`)
+  await fs.writeFile(file, `${lines.join('\n')}\n`)
+
+  const store = new EditCheckpointStore(root)
+  await store.capture({ sessionId: 'session-fix', cwd, turn: 1, absolute: file, prompt: 'edit' })
+  lines[300] = 'row 300 changed'
+  await fs.writeFile(file, `${lines.join('\n')}\n`)
+  await store.seal('session-fix', 1, 1)
+
+  // Simulate a record sealed by an older build.
+  const recordPath = store.recordFile('session-fix', 1)
+  const raw = JSON.parse(await fs.readFile(recordPath, 'utf8'))
+  raw.files[0].added = 999
+  raw.files[0].deleted = 0
+  raw.added = 999
+  raw.deleted = 0
+  await fs.writeFile(recordPath, JSON.stringify(raw))
+
+  const diff = await store.diff('session-fix', 1)
+  assert.deepEqual([diff.files[0].added, diff.files[0].deleted], [1, 1])
+
+  const healed = (await store.list('session-fix')).records[0]
+  assert.deepEqual([healed.added, healed.deleted], [1, 1])
+})

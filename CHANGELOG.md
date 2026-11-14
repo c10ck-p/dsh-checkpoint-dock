@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- The "+N −M" on a file row and the patch you get when expanding it now come from one diff, so they always agree. Before, the row counted a large file approximately (it fell back to the line-count difference once the comparison matrix got too big), while the panel always showed every line between the first and the last change — which is why a 127-line edit could read as "+121 −0" on the row and "+2144 −2023" in the patch. The diff is now Myers' algorithm with a bounded depth, so a scattered edit is counted by the lines it actually touches; a rewrite too large to align is reported as one coarse block, consistently in both places. Records sealed by an older build repair their counts the first time the patch is opened.
+
 - The restore journal now records the expected hash of every target before replacing it, and is flushed to disk (file, then the directory) before the first file is touched. A crash can therefore neither replay the journal onto a file the user edited afterwards nor lose an unflushed journal.
 
 ### Performance
