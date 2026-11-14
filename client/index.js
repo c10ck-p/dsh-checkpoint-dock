@@ -240,6 +240,13 @@ window.__ModuleLoader__.load({
         storagePinned: '{n} 条已钉住，不参与清理',
         storagePolicy: '只清理最早的记录内容，保留最近 {n} 条和所有钉住项；清理后记录仍在，但不能再查看/撤销/重做。',
         clean: '清理旧内容',
+        cleanRow: '清理',
+        confirmCleanRow: '确认清理',
+        cleanRowHint: '只删除这一条的保存内容，记录本身和计数还在',
+        cleanRowPinned: '这条已钉住，先取消钉住才能清理',
+        cleanRowUndone: '这条已撤销，先重做再清理',
+        cleaned: '已清理',
+        cleanRowDone: '这条的内容已经清理过了',
         confirmClean: '确认清理',
         cleanDone: '已清理 {n} 条记录',
         cleanNothing: '没有可清理的旧内容',
@@ -380,6 +387,13 @@ window.__ModuleLoader__.load({
         storagePinned: '{n} pinned records are never cleaned',
         storagePolicy: 'Only the oldest content is cleaned; the latest {n} and all pinned content stay. Records remain, but their diff/undo/redo stop working.',
         clean: 'Clean old content',
+        cleanRow: 'Clean',
+        confirmCleanRow: 'Confirm clean',
+        cleanRowHint: 'Drop only this checkpoint\'s saved content; the row and its counts stay',
+        cleanRowPinned: 'Pinned — unpin it before cleaning',
+        cleanRowUndone: 'Undone — redo it before cleaning',
+        cleaned: 'Cleaned',
+        cleanRowDone: 'This checkpoint\'s content was already cleaned',
         confirmClean: 'Confirm clean',
         cleanDone: 'Cleaned {n} records',
         cleanNothing: 'Nothing to clean',
@@ -1843,6 +1857,14 @@ window.__ModuleLoader__.load({
       var keepOpenState = useState(false)
       var keepOpen = keepOpenState[0]
       var setKeepOpen = keepOpenState[1]
+      // Per-row cleanup in the overview: the first click arms one row, the
+      // second one drops its content. Keyed by "session:turn".
+      var histCleanState = useState('')
+      var histClean = histCleanState[0]
+      var setHistClean = histCleanState[1]
+      var histBusyState = useState('')
+      var histBusy = histBusyState[0]
+      var setHistBusy = histBusyState[1]
       var keepPickerRef = useRef(null)
       var warnOpenState = useState(false)
       var warnOpen = warnOpenState[0]
@@ -1956,6 +1978,37 @@ window.__ModuleLoader__.load({
       useEffect(function () {
         if (tab === 'config' || tab === 'storage') loadStats()
       }, [tab, loadStats])
+
+      useEffect(function () {
+        if (histClean === '') return undefined
+        var timer = setTimeout(function () { setHistClean('') }, 4000)
+        return function () { clearTimeout(timer) }
+      }, [histClean])
+
+      var runCleanRecord = function (record) {
+        var key = String(record.sessionId || '') + ':' + String(record.turn)
+        if (histBusy !== '') return
+        if (histClean !== key) {
+          setHistClean(key)
+          return
+        }
+        setHistBusy(key)
+        setError('')
+        api.cleanRecord(record.sessionId, record.turn).then(function (result) {
+          setHistBusy('')
+          setHistClean('')
+          if (!result || result.ok !== true) {
+            setError(result && result.message ? result.message : t('actionFailed'))
+            return
+          }
+          loadHistory()
+          loadStats()
+        }).catch(function (failure) {
+          setHistBusy('')
+          setHistClean('')
+          setError(failure && failure.message ? failure.message : t('actionFailed'))
+        })
+      }
 
       useEffect(function () {
         if (!cleanConfirm) return undefined
@@ -2114,6 +2167,20 @@ window.__ModuleLoader__.load({
       var historyRow = function (record) {
         var reason = ''
         if (record.status === 'open') reason = t('historyNoIndex')
+        var cleanKey = String(record.sessionId || '') + ':' + String(record.turn)
+        var canClean = record.contentRemoved !== true && record.status !== 'open' && record.status !== 'undone' && record.pinned !== true
+        var cleanLabel = record.contentRemoved === true
+          ? t('cleaned')
+          : histClean === cleanKey
+            ? t('confirmCleanRow')
+            : t('cleanRow')
+        var cleanTitle = record.pinned === true
+          ? t('cleanRowPinned')
+          : record.status === 'undone'
+            ? t('cleanRowUndone')
+            : record.status === 'open'
+              ? t('historyNoIndex')
+              : t('cleanRowHint')
         var files = Array.isArray(record.files) ? record.files : []
         return createElement('div', { key: record.sessionId + ':' + record.turn, className: 'ecp_histRow' }, [
           createElement('div', { key: 'main', className: 'ecp_histMain' }, [
@@ -2148,6 +2215,16 @@ window.__ModuleLoader__.load({
               }
             },
           }, t('review')),
+          createElement('button', {
+            key: 'clean',
+            type: 'button',
+            className: 'ecp_btn' + (histClean === cleanKey ? ' is-confirm' : ''),
+            disabled: histBusy !== '' || canClean !== true,
+            title: cleanTitle,
+            onClick: function () {
+              runCleanRecord(record)
+            },
+          }, cleanLabel),
         ])
       }
 
@@ -2689,6 +2766,9 @@ window.__ModuleLoader__.load({
         // the whole store: `*` is the same sentinel the history page uses.
         statsAll: function () { return call('get', '*', -999999) },
         cleanAll: function () { return call('undo', '*', -999999) },
+        // One row of the overview: the session rides the prefix so the turn
+        // stays the real turn number.
+        cleanRecord: function (sessionId, turn) { return call('undo', 'clean:' + sessionId, turn) },
         rotateKey: function () { return call('undo', 'key', -999995) },
         redoBatch: function (batch) { return call('undo', 'batch:' + batch, -999994) },
         // A restore interrupted by a crash: read it, then let the user choose.

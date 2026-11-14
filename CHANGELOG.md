@@ -16,6 +16,7 @@
 
 ### Added
 
+- Every row in Settings → Checkpoints → Overview has a 清理 button now: two clicks drop just that checkpoint's saved content, leaving the row and its counts in place.
 - A pinned checkpoint now keeps one pre-image per file that changed after it, so "回退到此" still works even after the checkpoints in between were cleaned up. Unpinning drops the anchor and its bytes.
 
 ### Fixed

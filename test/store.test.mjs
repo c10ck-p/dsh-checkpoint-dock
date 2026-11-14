@@ -350,6 +350,46 @@ test('unpinning drops the anchor and the extra pre-images with it', async () => 
   assert.equal(refused.ok, false)
 })
 
+test('one checkpoint can be cleaned by hand without touching its neighbours', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const file = path.join(cwd, 'a.txt')
+
+  const write = async (turn, body) => {
+    await store.capture({ sessionId: 'session-one', cwd, turn, absolute: file, prompt: '' })
+    await fs.writeFile(file, body)
+    await store.seal('session-one', turn, 0)
+  }
+  await write(1, 'one\n')
+  await write(2, 'two\n')
+  await write(3, 'three\n')
+
+  const cleaned = await store.cleanRecord('session-one', 2)
+  assert.equal(cleaned.ok, true)
+  assert.equal(cleaned.records, 1)
+
+  const records = (await store.list('session-one', { limit: 0 })).records
+  assert.equal(records.find((record) => record.turn === 2).contentRemoved, true)
+  assert.equal(records.find((record) => record.turn === 1).contentRemoved, false)
+  assert.equal(records.find((record) => record.turn === 3).contentRemoved, false)
+
+  // The untouched neighbours still restore.
+  assert.equal((await store.undo('session-one', 3)).ok, true)
+  assert.equal(await fs.readFile(file, 'utf8'), 'two\n')
+
+  // A pinned checkpoint refuses to be cleaned, and so does an undone one.
+  await store.pin('session-one', 1)
+  const pinned = await store.cleanRecord('session-one', 1)
+  assert.equal(pinned.ok, false)
+  assert.equal(pinned.code, 'pinned')
+
+  const undone = await store.cleanRecord('session-one', 3)
+  assert.equal(undone.ok, false)
+  assert.equal(undone.code, 'undone')
+})
+
 test('a cleaned-up checkpoint refuses to be a revert target, and nothing moves', async () => {
   const { home, root } = await tempHome()
   const cwd = path.join(home, 'workspace')

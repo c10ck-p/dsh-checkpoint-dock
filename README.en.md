@@ -86,7 +86,7 @@ Uninstalling leaves existing checkpoints in place; the data stays in `$DSH_HOME/
 3. Use **Keep / Undo / Redo / Revert to here** on that turn; a file row expands only its own patch, **View all changes** expands the whole turn and collapses it again.
 4. The welcome page shows no dock; once you send the first message the dock keeps a single collapsed row even if the turn changed no files, and expanding it says there are no checkpoints yet.
 
-To browse everything, open **Settings → Checkpoints → Overview**; cleanup and encryption live under **Config**; usage and the per-session pie live under **Storage**.
+To browse everything, open **Settings → Checkpoints → Overview** (each row has its own Clean button); cleanup and encryption live under **Config**; usage and the per-session pie live under **Storage**.
 
 A turn settles its files when it ends: the workspace is compared at the start and at the end, and every difference is recorded — so a file written by a shell command, a script, or an editor shows up in the checkpoint just like one written by DSH's own file tools. A small tree is scanned as a whole; a large one that is a git repository is compared through `git status` plus `git cat-file`, reading only the files that really changed.
 
