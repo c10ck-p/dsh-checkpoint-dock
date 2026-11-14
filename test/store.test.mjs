@@ -201,12 +201,46 @@ test('settings are clamped, persisted and shared by later instances', async () =
   // A second store (a restarted Host) reads the same answer from disk.
   const reopened = new EditCheckpointStore(root)
   const config = await reopened.readConfig()
-  assert.deepEqual(config, { autoClean: true, keep: 12, encrypt: false })
+  assert.deepEqual(config, {
+    autoClean: true,
+    keep: 12,
+    encrypt: false,
+    warn: true,
+    warnBytes: 500 * 1024 * 1024,
+  })
 
   // The panel reads these back through stats().
   const stats = await reopened.stats('session-empty')
   assert.equal(stats.autoClean, true)
   assert.equal(stats.keepRecent, 12)
+  assert.equal(stats.warn, true)
+  assert.equal(stats.warnBytes, 500 * 1024 * 1024)
+})
+
+test('the storage warning defaults on and keeps its limit in range', async () => {
+  const { root } = await tempHome()
+  const store = new EditCheckpointStore(root)
+
+  const defaults = await store.readConfig()
+  assert.equal(defaults.warn, true)
+  assert.equal(defaults.warnBytes, 500 * 1024 * 1024)
+
+  // A limit outside the accepted range falls back instead of being stored.
+  const clamped = await store.setConfig({ warnBytes: 1 })
+  assert.equal(clamped.warnBytes, 500 * 1024 * 1024)
+  assert.equal(clamped.warn, true)
+
+  const saved = await store.setConfig({ warn: false, warnBytes: 1024 * 1024 * 1024 })
+  assert.equal(saved.warn, false)
+  assert.equal(saved.warnBytes, 1024 * 1024 * 1024)
+
+  const stats = await store.stats('session-empty')
+  assert.equal(stats.warn, false)
+  assert.equal(stats.warnBytes, 1024 * 1024 * 1024)
+
+  // An existing config file without the key keeps warnings on.
+  const reopened = new EditCheckpointStore(root)
+  assert.equal((await reopened.readConfig()).warn, false)
 })
 
 test('auto clean trims an over-limit session and respects the setting', async () => {

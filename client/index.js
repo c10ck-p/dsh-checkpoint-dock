@@ -252,6 +252,12 @@ window.__ModuleLoader__.load({
         storageAutoClean: '自动清理检查点',
         storageKeep: '保留最近',
         storageKeepOption: '{n} 条',
+        storageWarnTitle: '存储提醒',
+        storageWarnToggle: '占用超过阈值时提醒',
+        storageWarnLimit: '阈值',
+        storageWarnHint: '超过阈值后，「存储」页和输入区下方的检查点 Dock 都会显示提醒。默认 500 MB，只提醒，不会自动删东西。',
+        storageOverLimit: '检查点已占用 {size}，超过提醒阈值 {limit}。可以在下面清理旧内容，或开启自动清理。',
+        storageOverDock: '检查点已占用 {size}，超过提醒阈值 {limit}；到 设置 → 检查点 里清理或调整阈值。',
         cryptoTitle: '加密',
         cryptoOn: '加密检查点内容',
         cryptoHint: '默认关闭。开启后新检查点立即加密，旧内容在后续轮次里逐步加密，并会在这里出现「重置密钥」。密钥保存在检查点目录之外的 checkpoint-keys：重置只是换一把新密钥，旧内容照样能读；但密钥全部丢失后这些内容将无法查看。',
@@ -385,6 +391,12 @@ window.__ModuleLoader__.load({
         storageAutoClean: 'Clean up automatically',
         storageKeep: 'Keep the latest',
         storageKeepOption: '{n} records',
+        storageWarnTitle: 'Storage warning',
+        storageWarnToggle: 'Warn when the store grows past a limit',
+        storageWarnLimit: 'Limit',
+        storageWarnHint: 'When the store passes this size, both the Storage tab and the checkpoint dock under the input show a note. Defaults to 500 MB; it only warns, nothing is deleted.',
+        storageOverLimit: 'Checkpoints take {size}, past the {limit} warning limit. Clean up older content below, or turn on automatic cleanup.',
+        storageOverDock: 'Checkpoints take {size}, past the {limit} warning limit — clean up or adjust it in Settings → Checkpoints.',
         cryptoTitle: 'Encryption',
         cryptoOn: 'Encrypt checkpoint content',
         cryptoHint: 'Off by default. When on, new checkpoints are sealed at once, older content is encrypted in the background, and a Rotate key button appears here. Keys live outside the checkpoint directory: rotating only mints a new key and keeps old content readable — losing every key makes it unreadable.',
@@ -482,6 +494,7 @@ window.__ModuleLoader__.load({
       '.ecp_storageRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
       '.ecp_storageRow .ecp_btn{margin-left:auto}',
       '.ecp_storageTitle{color:var(--dsw-alias-label-primary);font-weight:500;margin-bottom:2px}',
+      '.ecp_storageWarnSetting{margin:10px 0 4px;padding-top:10px;border-top:.5px solid var(--dsw-alias-border-l1)}',
       '.ecp_storageWarn{color:var(--dsw-alias-state-error-primary,#d33);margin-top:4px}',
       '.ecp_storageOrphans{margin-top:6px;border-top:.5px dashed var(--dsw-alias-border-l2);padding-top:6px}',
       '.ecp_storageOrphanText{color:var(--dsw-alias-label-secondary)}',
@@ -616,7 +629,8 @@ window.__ModuleLoader__.load({
       var value = Number(bytes) || 0
       if (value < 1024) return String(value) + ' B'
       if (value < 1024 * 1024) return (value / 1024).toFixed(1) + ' KB'
-      return (value / (1024 * 1024)).toFixed(1) + ' MB'
+      if (value < 1024 * 1024 * 1024) return (value / (1024 * 1024)).toFixed(1) + ' MB'
+      return (value / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
     }
 
     function checkpointIcon(size) {
@@ -673,6 +687,10 @@ window.__ModuleLoader__.load({
       var journalBusyState = useState(false)
       var journalBusy = journalBusyState[0]
       var setJournalBusy = journalBusyState[1]
+      var usageState = useState(null)
+      var usage = usageState[0]
+      var setUsage = usageState[1]
+      var usageAtRef = useRef(0)
       var selectedState = useState(null)
       var selectedTurn = selectedState[0]
       var setSelectedTurn = selectedState[1]
@@ -732,6 +750,20 @@ window.__ModuleLoader__.load({
         api.journal().then(function (info) {
           setJournal(info && typeof info === 'object' ? info : null)
         }).catch(function () {})
+        // The storage size only changes slowly, and stats() walks every
+        // session, so ask once a minute instead of on every poll.
+        var now = Date.now()
+        if (now - usageAtRef.current > 60000) {
+          usageAtRef.current = now
+          api.statsAll().then(function (next) {
+            if (!next || typeof next !== 'object') return
+            setUsage({
+              bytes: Number(next.bytes) || 0,
+              limit: Number(next.warnBytes) || 0,
+              on: next.warn !== false,
+            })
+          }).catch(function () {})
+        }
         api.list(sessionId).then(function (list) {
           // A malformed or empty answer is not "this session has no
           // checkpoints": keeping the last good list beats hiding the dock
@@ -1626,6 +1658,12 @@ window.__ModuleLoader__.load({
               })) : null,
           ]),
         ]),
+        collapsed || usage === null || usage.on !== true || usage.limit <= 0 || usage.bytes <= usage.limit
+          ? null
+          : createElement('div', { key: 'storageBanner', className: 'ecp_revertBanner' }, [
+            createElement('span', { key: 'text', className: 'ecp_revertBannerText' },
+              fill(t, 'storageOverDock', { size: formatSize(usage.bytes), limit: formatSize(usage.limit) })),
+          ]),
         collapsed || journal === null || journal.pending !== true ? null : createElement('div', { key: 'journalBanner', className: 'ecp_revertBanner' }, [
           createElement('span', { key: 'text', className: 'ecp_revertBannerText' },
             journal.blocked === true
@@ -1787,6 +1825,10 @@ window.__ModuleLoader__.load({
       var keepOpen = keepOpenState[0]
       var setKeepOpen = keepOpenState[1]
       var keepPickerRef = useRef(null)
+      var warnOpenState = useState(false)
+      var warnOpen = warnOpenState[0]
+      var setWarnOpen = warnOpenState[1]
+      var warnPickerRef = useRef(null)
 
       useEffect(function () {
         if (!sessionMenuOpen) return undefined
@@ -1819,6 +1861,22 @@ window.__ModuleLoader__.load({
           document.removeEventListener('keydown', closeOnEscape)
         }
       }, [keepOpen])
+
+      useEffect(function () {
+        if (!warnOpen) return undefined
+        var closeOnOutside = function (event) {
+          if (warnPickerRef.current && !warnPickerRef.current.contains(event.target)) setWarnOpen(false)
+        }
+        var closeOnEscape = function (event) {
+          if (event.key === 'Escape') setWarnOpen(false)
+        }
+        document.addEventListener('pointerdown', closeOnOutside)
+        document.addEventListener('keydown', closeOnEscape)
+        return function () {
+          document.removeEventListener('pointerdown', closeOnOutside)
+          document.removeEventListener('keydown', closeOnEscape)
+        }
+      }, [warnOpen])
 
       useEffect(function () {
         return subscribeSettings(function (next) { setSettings(next) })
@@ -2309,6 +2367,10 @@ window.__ModuleLoader__.load({
             createElement('div', { key: 'pinned' }, format(t, 'storagePinned', stats.pinned || 0)),
             stats.failure ? createElement('div', { key: 'failure', className: 'ecp_storageWarn' },
               fill(t, 'storageFailure', { message: stats.failure.message })) : null,
+            stats.warn !== false && stats.bytes > stats.warnBytes
+              ? createElement('div', { key: 'over', className: 'ecp_storageWarn' },
+                fill(t, 'storageOverLimit', { size: formatSize(stats.bytes), limit: formatSize(stats.warnBytes) }))
+              : null,
             chart,
           ]),
       ])
@@ -2438,6 +2500,64 @@ window.__ModuleLoader__.load({
         ])
       }
 
+      var warnSection = null
+      if (stats !== null) {
+        var warnLimit = stats.warnBytes || 500 * 1024 * 1024
+        warnSection = createElement('div', { key: 'storageWarnSetting', className: 'ecp_storageWarnSetting' }, [
+          createElement('div', { key: 'title', className: 'ecp_settingsSection' }, t('storageWarnTitle')),
+          createElement('div', { key: 'row', className: 'ecp_storageSetting' }, [
+            createElement('label', { key: 'toggle', className: 'ecp_storageToggle' }, [
+              createElement('input', {
+                key: 'box',
+                type: 'checkbox',
+                className: 'ecp_storageCheck',
+                checked: stats.warn !== false,
+                disabled: storageBusy !== '',
+                onChange: function (event) { saveConfig({ warn: event.target.checked === true }) },
+              }),
+              createElement('span', { key: 'text' }, t('storageWarnToggle')),
+            ]),
+            createElement('div', { key: 'limit', className: 'ecp_storageToggle' }, [
+              createElement('span', { key: 'text' }, t('storageWarnLimit')),
+              createElement('div', { key: 'picker', className: 'ecp_storagePicker', ref: warnPickerRef }, [
+                createElement('button', {
+                  key: 'button',
+                  type: 'button',
+                  className: 'ecp_sessionButton' + (warnOpen ? ' is-open' : ''),
+                  'aria-haspopup': 'listbox',
+                  'aria-expanded': warnOpen,
+                  disabled: storageBusy !== '',
+                  onClick: function () { setWarnOpen(!warnOpen) },
+                }, [
+                  createElement('span', { key: 'text', className: 'ecp_sessionButtonText' }, formatSize(warnLimit)),
+                  createElement('span', { key: 'chevron', className: 'ecp_sessionChevron' }, warnOpen ? '▴' : '▾'),
+                ]),
+                warnOpen ? createElement('div', { key: 'menu', className: 'ecp_sessionMenu', role: 'listbox' },
+                  [100, 250, 500, 1024, 2048].map(function (megabytes) {
+                    var bytes = megabytes * 1024 * 1024
+                    var active = warnLimit === bytes
+                    return createElement('button', {
+                      key: megabytes,
+                      type: 'button',
+                      role: 'option',
+                      'aria-selected': active,
+                      className: 'ecp_sessionOption' + (active ? ' is-active' : ''),
+                      onClick: function () {
+                        setWarnOpen(false)
+                        saveConfig({ warnBytes: bytes })
+                      },
+                    }, [
+                      createElement('span', { key: 'text', className: 'ecp_sessionOptionText' }, formatSize(bytes)),
+                      active ? createElement('span', { key: 'check', className: 'ecp_sessionCheck' }, '✓') : null,
+                    ])
+                  })) : null,
+              ]),
+            ]),
+          ]),
+          createElement('div', { key: 'hint', className: 'ecp_settingsHint' }, t('storageWarnHint')),
+        ])
+      }
+
       var config = createElement('div', { key: 'config', className: 'ecp_settingsPane' }, [
         createElement('div', { key: 'hint', className: 'ecp_settingsHint' }, t('settingsHint')),
         row('resident', t('resident'), t('residentHint')),
@@ -2445,7 +2565,7 @@ window.__ModuleLoader__.load({
         createElement('div', { key: 'divider', className: 'ecp_settingsDivider' }),
         stats === null
           ? createElement('div', { key: 'loading', className: 'ecp_diffLoading' }, t('diffLoading'))
-          : cleanup,
+          : createElement('div', { key: 'blocks' }, [warnSection, cleanup]),
         createElement('div', { key: 'reset', className: 'ecp_settingsFooter' }, [
           createElement('button', {
             key: 'button',

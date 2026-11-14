@@ -10,6 +10,8 @@
 
 - Turning encryption off while sealed blobs are still around now shows a notice in the settings: the old content keeps opening, but new writes go back to plaintext.
 
+- The Config tab can watch the store size: a warning, on by default, fires once checkpoints use more than 500 MB (100 MB / 250 MB / 500 MB / 1 GB / 2 GB). It shows on the Storage tab and as one line in the dock under the input; it only reports, nothing is cleaned automatically.
+
 ### Fixed
 
 - The "+N −M" on a file row and the patch you get when expanding it now come from one diff, so they always agree. Before, the row counted a large file approximately (it fell back to the line-count difference once the comparison matrix got too big), while the panel always showed every line between the first and the last change — which is why a 127-line edit could read as "+121 −0" on the row and "+2144 −2023" in the patch. The diff is now Myers' algorithm with a bounded depth, so a scattered edit is counted by the lines it actually touches; a rewrite too large to align is reported as one coarse block, consistently in both places. Records sealed by an older build repair their counts the first time the patch is opened.
