@@ -20,6 +20,10 @@
 - Every row in Settings → Checkpoints → Overview has a 清理 button now: two clicks drop just that checkpoint's saved content, leaving the row and its counts in place.
 - A pinned checkpoint now keeps one pre-image per file that changed after it, so "回退到此" still works even after the checkpoints in between were cleaned up. Unpinning drops the anchor and its bytes.
 
+### Performance
+
+- The turn-start scan reuses the bytes of files whose size and mtime still match the previous scan, so only the handful that changed is read again; the same snapshot now also catches changes made between two turns (a deleted folder, a file edited while the agent was idle) instead of silently absorbing them.
+
 ### Fixed
 
 - A checkpoint whose content was cleaned up no longer offers "回退到此": the button is disabled and explains that the revert needs content that no longer exists. The host already refused such a revert before touching anything, but the click looked like it should work.

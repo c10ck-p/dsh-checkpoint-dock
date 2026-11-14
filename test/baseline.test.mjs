@@ -143,3 +143,29 @@ test('a large change set skips rename pairing instead of going quadratic', () =>
   const paired = pairRenames(changes)
   assert.equal(paired.filter((change) => change.renamedFrom !== undefined).length, 0)
 })
+
+test('a second scan reuses untouched bytes and still reports what moved', async () => {
+  const root = await workspace('reuse')
+  await writeFile(path.join(root, 'same.txt'), 'unchanged\n')
+  await writeFile(path.join(root, 'edit.txt'), 'before\n')
+  await writeFile(path.join(root, 'gone.txt'), 'bye\n')
+  const first = await scanWorkspace(root)
+
+  await writeFile(path.join(root, 'edit.txt'), 'after\n')
+  await rm(path.join(root, 'gone.txt'))
+  await writeFile(path.join(root, 'fresh.txt'), 'new\n')
+
+  const second = await scanWorkspace(root, {}, first)
+
+  // Reuse is visible as identity: the same buffer came back without a read.
+  assert.equal(second.files.get('same.txt'), first.files.get('same.txt'))
+  assert.equal(second.meta.get('same.txt').mtimeMs, first.meta.get('same.txt').mtimeMs)
+
+  const changes = changedSince(first, second)
+  const byPath = new Map(changes.map((change) => [change.path, change]))
+  assert.deepEqual([...byPath.keys()].sort(), ['edit.txt', 'fresh.txt', 'gone.txt'])
+  assert.equal(byPath.get('edit.txt').before.toString('utf8'), 'before\n')
+  assert.equal(byPath.get('edit.txt').after.toString('utf8'), 'after\n')
+  assert.equal(byPath.get('gone.txt').after, null)
+  assert.equal(byPath.get('fresh.txt').before, null)
+})

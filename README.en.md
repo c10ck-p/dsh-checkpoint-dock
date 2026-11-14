@@ -88,7 +88,7 @@ Uninstalling leaves existing checkpoints in place; the data stays in `$DSH_HOME/
 
 To browse everything, open **Settings → Checkpoints → Overview** (each row has its own Clean button); cleanup and encryption live under **Config**; usage and the per-session pie live under **Storage**.
 
-A turn settles its files when it ends: the workspace is compared at the start and at the end, and every difference is recorded — so a file written by a shell command, a script, or an editor shows up in the checkpoint just like one written by DSH's own file tools. A small tree is scanned as a whole; a large one that is a git repository is compared through `git status` plus `git cat-file`, reading only the files that really changed.
+A turn settles its files when it ends: the workspace is compared at the start and at the end, and every difference is recorded — so a file written by a shell command, a script, or an editor shows up in the checkpoint just like one written by DSH's own file tools. A small tree is scanned as a whole; a large one that is a git repository is compared through `git status` plus `git cat-file`, reading only the files that really changed. Changes made between turns are not lost either: the next turn compares against the snapshot taken when the previous turn ended, so a deleted folder or a file edited while the agent was idle is recorded into that turn (adjacent turns of the same session only; the first turn after a restart has nothing to compare against).
 
 When residency is off, the dock appears only while a turn has unhandled file changes and hides again once they are handled. Settings are stored per browser and shared across DSH ports on the same machine.
 
@@ -125,6 +125,7 @@ The intent journal (`$DSH_HOME/edit-checkpoints/pending.json`) records the hash 
 
 - Only files inside the current workspace are handled.
 - Every dot-directory is skipped, so content changed by a shell command inside `.github/`, `.vscode/` or `.config/` is never noticed (writes through DSH's file tools still are). A dot-file at the workspace root (a `.gitignore`, say) is read, but one that matches the sensitive list (`.env`) keeps only its path and hash.
+- The between-turn catch-up only has the previous turn's snapshot in memory: right after a DSH restart there is nothing to compare against, so that one stretch is not recorded (everything after it is).
 - The git path cannot see files ignored by `.gitignore` — build output, `node_modules`, logs. The scan skips those directories too, so both paths agree.
 - On a very large tree external-write detection degrades: the turn that exceeds the budget records only DSH file-tool writes, and so does a turn where the git command fails.
 - Restores file bytes and permission bits; it does not restore mtime, directories, symlink targets, or `.git` metadata.

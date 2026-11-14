@@ -155,6 +155,42 @@ export async function apply(ctx, config) {
   const baselines = new Map()
 
   /**
+   * The scan taken at the end of a session's last turn. The next turn reuses
+   * its bytes for files that still have the same size and mtime, and — when the
+   * turns are adjacent — reports what changed in between as the new turn's
+   * carry-over, so edits made while nobody was recording are not lost.
+   * @type {Map<string, {turn: number, cwd: string, scan: {files: Map<string, Buffer>, meta: Map<string, {size: number, mtimeMs: number}>, exceeded: boolean}}>}
+   */
+  const lastScans = new Map()
+
+  /** Keeping every session's tree in memory would grow without bound. */
+  const RETAINED_SESSIONS = 8
+  const RETAINED_BYTES = 64 * 1024 * 1024
+
+  /**
+   * Keep the freshest snapshots only: a checkpoint store can serve many
+   * sessions, and every retained tree costs its own bytes.
+   * @param {string} sessionId
+   * @param {{turn: number, cwd: string, scan: any}} entry
+   */
+  const retainedBytes = () => {
+    let total = 0
+    for (const kept of lastScans.values()) total += typeof kept.scan.bytes === 'number' ? kept.scan.bytes : 0
+    return total
+  }
+
+  const rememberScan = (sessionId, entry) => {
+    lastScans.delete(sessionId)
+    lastScans.set(sessionId, entry)
+    while (lastScans.size > RETAINED_SESSIONS) {
+      lastScans.delete(lastScans.keys().next().value)
+    }
+    while (lastScans.size > 1 && retainedBytes() > RETAINED_BYTES) {
+      lastScans.delete(lastScans.keys().next().value)
+    }
+  }
+
+  /**
    * What the last scan of a working directory cost. Spawning git is not free
    * (three processes, ~160 ms on Windows), so on a small tree reading every
    * file beats asking git. The measurement decides: a directory is scanned
@@ -174,11 +210,46 @@ export async function apply(ctx, config) {
    * Scan and remember what it cost, so the next turn can pick the other path.
    * @param {string} cwd
    */
-  const scanAndRemember = async (cwd) => {
+  const scanAndRemember = async (cwd, previous = null) => {
     const started = Date.now()
-    const scan = await scanWorkspace(cwd)
+    const scan = await scanWorkspace(cwd, {}, previous)
     scanCost.set(cwd, { files: scan.files.size, ms: Date.now() - started })
     return { kind: 'scan', scan }
+  }
+
+  /**
+   * Record what changed between the end of the previous turn and now. Nobody
+   * was watching during that stretch, so without this a deleted folder or an
+   * edit made while the agent was idle would never reach a checkpoint.
+   * @param {any} session @param {number} turn @param {string} cwd
+   * @param {any} previous @param {any} fresh
+   */
+  const carryOver = async (session, turn, cwd, previous, fresh) => {
+    if (previous === null || fresh === null) return
+    if (previous.exceeded || fresh.exceeded) return
+    /** @type {{absolute: string, before: Buffer|null, after: Buffer|null, renamedFrom?: string}[]} */
+    const changes = changedSince(previous, fresh).map((change) => ({
+      absolute: path.join(cwd, change.path),
+      before: change.before,
+      after: change.after,
+    }))
+    pairRenames(changes)
+    for (const change of changes) {
+      if (isGitMetadata(cwd, change.absolute)) continue
+      try {
+        await store.capture({
+          sessionId: session.id,
+          cwd,
+          turn,
+          absolute: change.absolute,
+          prompt: '',
+          origin: 'external',
+          before: change.before === null ? { exists: false, buffer: null } : { exists: true, buffer: change.before },
+        })
+      } catch (error) {
+        warn(error)
+      }
+    }
   }
 
   /**
@@ -194,7 +265,16 @@ export async function apply(ctx, config) {
     if (typeof cwd !== 'string' || cwd === '') return
     const learned = scanCost.get(cwd)
     const expensive = learned !== undefined && (learned.files > SCAN_FILES_LIMIT || learned.ms > SCAN_MS_LIMIT)
-    const scanned = () => scanAndRemember(cwd)
+    const previous = lastScans.get(session.id)
+    const reusable = previous !== undefined && previous.cwd === cwd ? previous : null
+    const scanned = async () => {
+      const fresh = await scanAndRemember(cwd, reusable === null ? null : reusable.scan)
+      // Adjacent turns only: a gap means the snapshot is too old to attribute.
+      if (reusable !== null && reusable.turn === turn - 1) {
+        await carryOver(session, turn, cwd, reusable.scan, fresh.scan).catch((error) => warn(error))
+      }
+      return fresh
+    }
     const snapshot = (expensive
       ? takeGitBaseline(cwd).then((git) => (git === null ? scanned() : git))
       : scanned())
@@ -226,7 +306,11 @@ export async function apply(ctx, config) {
       ? await gitChanges(before).catch(() => [])
       : await (async () => {
           const after = await scanWorkspace(cwd).catch(() => undefined)
-          if (after === undefined || after.exceeded) return []
+          if (after === undefined) return []
+          // Keep it for the next turn: same bytes, no reread, plus carry-over.
+          if (after.exceeded) lastScans.delete(session.id)
+          else rememberScan(session.id, { turn, cwd, scan: after })
+          if (after.exceeded) return []
           return changedSince(before.scan, after).map((change) => ({
             absolute: path.join(cwd, change.path),
             before: change.before,
@@ -355,6 +439,7 @@ export async function apply(ctx, config) {
 
   ctx.on('session/disposed', (session) => {
     announcedSeq.delete(session)
+    lastScans.delete(session.id)
     const prefix = `${session.id}:`
     for (const key of [...baselines.keys()]) {
       if (key.startsWith(prefix)) baselines.delete(key)
