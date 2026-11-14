@@ -284,6 +284,72 @@ more\n`)
   assert.ok(stats.bytes > 0)
 })
 
+test('a pinned fork stays reachable after the chain behind it was cleaned', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const file = path.join(cwd, 'a.txt')
+  const later = path.join(cwd, 'b.txt')
+
+  const write = async (turn, body) => {
+    await store.capture({ sessionId: 'session-fork', cwd, turn, absolute: file, prompt: '' })
+    await fs.writeFile(file, `${body} see ${turn}\n`)
+    await store.seal('session-fork', turn, 0)
+  }
+  for (let turn = 1; turn <= 6; turn += 1) await write(turn, `v${turn}\n`)
+
+  // A file that only exists after the pin.
+  await store.capture({ sessionId: 'session-fork', cwd, turn: 7, absolute: later, prompt: '' })
+  await fs.writeFile(later, 'later\n')
+  await store.seal('session-fork', 7, 0)
+
+  await store.pin('session-fork', 1)
+  // Keep five of six: the pinned first turn survives, turn 2 loses its content.
+  const cleaned = await store.clean('session-fork', 5)
+  assert.equal(cleaned.ok, true)
+  assert.equal(cleaned.records, 1)
+
+  const target = (await store.list('session-fork', { limit: 0 })).records.find((record) => record.turn === 1)
+  assert.equal(target.anchored, true)
+  assert.equal(target.anchorFiles, 2)
+
+  const result = await store.revert('session-fork', 1)
+  assert.equal(result.ok, true)
+  assert.equal(result.anchored, true)
+  assert.equal(await fs.readFile(file, 'utf8'), 'v1\n see 1\n')
+  await assert.rejects(fs.readFile(later))
+})
+
+test('unpinning drops the anchor and the extra pre-images with it', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const file = path.join(cwd, 'a.txt')
+
+  const write = async (turn, body) => {
+    await store.capture({ sessionId: 'session-drop', cwd, turn, absolute: file, prompt: '' })
+    await fs.writeFile(file, `${body} see ${turn}\n`)
+    await store.seal('session-drop', turn, 0)
+  }
+  for (let turn = 1; turn <= 7; turn += 1) await write(turn, `v${turn}\n`)
+
+  await store.pin('session-drop', 1)
+  await store.clean('session-drop', 5)
+  const pinned = (await store.list('session-drop', { limit: 0 })).records.find((record) => record.turn === 1)
+  assert.equal(pinned.anchored, true)
+
+  await store.pin('session-drop', 1)
+  const unpinned = (await store.list('session-drop', { limit: 0 })).records.find((record) => record.turn === 1)
+  assert.equal(unpinned.pinned, false)
+  assert.equal(unpinned.anchored, false)
+
+  // Without the anchor the cleaned middle of the chain is genuinely unreachable.
+  const refused = await store.revert('session-drop', 1)
+  assert.equal(refused.ok, false)
+})
+
 test('a cleaned-up checkpoint refuses to be a revert target, and nothing moves', async () => {
   const { home, root } = await tempHome()
   const cwd = path.join(home, 'workspace')

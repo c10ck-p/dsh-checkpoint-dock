@@ -14,6 +14,10 @@
 
 - The Config tab can watch the store size: a warning, on by default, fires once checkpoints use more than 500 MB (100 MB / 250 MB / 500 MB / 1 GB / 2 GB). It shows on the Storage tab and as one line in the dock under the input; it only reports, nothing is cleaned automatically.
 
+### Added
+
+- A pinned checkpoint now keeps one pre-image per file that changed after it, so "回退到此" still works even after the checkpoints in between were cleaned up. Unpinning drops the anchor and its bytes.
+
 ### Fixed
 
 - A checkpoint whose content was cleaned up no longer offers "回退到此": the button is disabled and explains that the revert needs content that no longer exists. The host already refused such a revert before touching anything, but the click looked like it should work.

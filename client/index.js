@@ -225,7 +225,7 @@ window.__ModuleLoader__.load({
         pin: '钉住',
         pinned: '已钉住',
         unpin: '取消钉住',
-        pinHint: '钉住后清理旧内容时不会删除它',
+        pinHint: '钉住后清理旧内容时不会删除它，之后还能一路回退到这里',
         pinRecording: '检查点还在记录中',
         pinRemoved: '内容已清理，无法钉住',
         storage: '存储',
@@ -365,7 +365,7 @@ window.__ModuleLoader__.load({
         pin: 'Pin',
         pinned: 'Pinned',
         unpin: 'Unpin',
-        pinHint: 'Pinned content is excluded from cleanup',
+        pinHint: 'Pinned content survives cleanup, and you can still revert back to it later',
         pinRecording: 'This checkpoint is still recording',
         pinRemoved: 'Content was cleaned; cannot pin',
         storage: 'Storage',
@@ -1108,8 +1108,10 @@ window.__ModuleLoader__.load({
       // Reverting replays the before-images of every newer checkpoint, so a row
       // whose content was cleaned (or a cleaned checkpoint in between) cannot
       // work — say so instead of letting the host reject it after a click.
+      // A pinned checkpoint that kept an anchor is the exception: the host
+      // restores from the one pre-image per file instead of the chain.
       var revertCleaned = selected.contentRemoved === true
-      if (!revertCleaned) {
+      if (!revertCleaned && selected.anchored !== true) {
         for (var cleanIndex = 0; cleanIndex < newerList.length; cleanIndex += 1) {
           if (newerList[cleanIndex].contentRemoved === true) {
             revertCleaned = true
