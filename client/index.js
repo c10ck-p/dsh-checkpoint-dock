@@ -281,6 +281,7 @@ window.__ModuleLoader__.load({
         cryptoOff: '先开启加密，才能重置密钥',
         revertUndone: '已回退到第 {turn} 轮之后，{count} 条检查点被撤销',
         undoRevert: '反悔这次回退',
+        busyTurn: '这一轮还在跑，等它结束再操作',
         journalPending: '上次恢复被中断，还有 {n} 个文件没写完。',
         journalBlocked: '{path} 在恢复中断后又被修改过，继续会覆盖它。',
         journalResume: '继续恢复',
@@ -432,6 +433,7 @@ window.__ModuleLoader__.load({
         cryptoOff: 'Turn encryption on before rotating the key',
         revertUndone: 'Reverted past turn {turn}; {count} checkpoints were undone',
         undoRevert: 'Take that revert back',
+        busyTurn: 'Wait for this turn to finish before touching checkpoints',
         journalPending: 'The last restore was interrupted; {n} files are still pending.',
         journalBlocked: '{path} changed after the interruption — continuing would overwrite it.',
         journalResume: 'Finish the restore',
@@ -902,6 +904,9 @@ window.__ModuleLoader__.load({
           sessionSnapshot = undefined
         }
       }
+      // A running turn owns the files; swapping them underneath it would make
+      // every later edit and retry argue with a workspace that moved.
+      var turnLocked = sessionSnapshot !== undefined && sessionSnapshot.running === true
       if (sessionSnapshot !== undefined && typeof sessionSnapshot.blank === 'boolean') {
         var conversationStarted = sessionSnapshot.running === true ||
           sessionSnapshot.promptAttempted === true ||
@@ -1055,7 +1060,7 @@ window.__ModuleLoader__.load({
         }
       }
       if (redoMode && selected.contentRemoved === true) redoBlocker = { kind: 'removed', record: selected }
-      var redoDisabled = busy !== '' || !redoMode || redoBlocker !== null
+      var redoDisabled = busy !== '' || turnLocked || !redoMode || redoBlocker !== null
       var redoTitle = !redoMode
         ? t('undo')
         : selected.contentRemoved === true
@@ -1067,7 +1072,7 @@ window.__ModuleLoader__.load({
               : format(t, 'undoNewer', displayTurn(redoBlocker.record.turn))
       var undoDisabled = redoMode
         ? redoDisabled
-        : busy !== '' || !sealed || undoBlocked || acceptedLater !== null
+        : busy !== '' || turnLocked || !sealed || undoBlocked || acceptedLater !== null
       var undoTitle = redoMode
         ? redoTitle
         : selectedStatus === 'kept'
@@ -1099,7 +1104,7 @@ window.__ModuleLoader__.load({
       }
       newerList.sort(function (left, right) { return right.turn - left.turn })
       var newerActive = newerList.length > 0 ? newerList[0] : null
-      var keepDisabled = busy !== '' || !sealed || selectedStatus === 'kept' || selectedStatus === 'undone' || newerActive !== null
+      var keepDisabled = busy !== '' || turnLocked || !sealed || selectedStatus === 'kept' || selectedStatus === 'undone' || newerActive !== null
       var keepTitle = selectedStatus === 'kept'
         ? t('kept')
         : selectedStatus === 'open'
@@ -1143,7 +1148,7 @@ window.__ModuleLoader__.load({
           }
         }
       }
-      var revertDisabled = busy !== '' || !revertTarget || newerList.length === 0 || revertBlocker !== null || revertCleaned
+      var revertDisabled = busy !== '' || turnLocked || !revertTarget || newerList.length === 0 || revertBlocker !== null || revertCleaned
       var revertTitle = revertCleaned
         ? t('revertCleaned')
         : selectedStatus === 'open'
@@ -1161,13 +1166,19 @@ window.__ModuleLoader__.load({
                   : format(t, 'revertTarget', displayTurn(selected.turn))
 
       var canPin = !recording && selected.contentRemoved !== true
-      var pinDisabled = busy !== '' || pinBusy || !canPin
+      var pinDisabled = busy !== '' || turnLocked || pinBusy || !canPin
       var pinTitle = recording
         ? t('pinRecording')
         : selected.contentRemoved === true
           ? t('pinRemoved')
           : t('pinHint')
       var pinLabel = selected.pinned === true ? t('unpin') : t('pin')
+      if (turnLocked) {
+        keepTitle = t('busyTurn')
+        undoTitle = t('busyTurn')
+        revertTitle = t('busyTurn')
+        pinTitle = t('busyTurn')
+      }
 
       var diffAvailable = files.length > 0 && selected.contentRemoved !== true
 
@@ -1716,14 +1727,16 @@ window.__ModuleLoader__.load({
             key: 'resume',
             type: 'button',
             className: 'ecp_btn',
-            disabled: journalBusy,
+            disabled: journalBusy || turnLocked,
+            title: turnLocked ? t('busyTurn') : undefined,
             onClick: function () { settleJournal(true) },
           }, t('journalResume')),
           createElement('button', {
             key: 'discard',
             type: 'button',
             className: 'ecp_btn',
-            disabled: journalBusy,
+            disabled: journalBusy || turnLocked,
+            title: turnLocked ? t('busyTurn') : undefined,
             onClick: function () { settleJournal(false) },
           }, t('journalDiscard')),
         ]),
@@ -1737,7 +1750,8 @@ window.__ModuleLoader__.load({
             key: 'button',
             type: 'button',
             className: 'ecp_btn',
-            disabled: undoing,
+            disabled: undoing || turnLocked,
+            title: turnLocked ? t('busyTurn') : undefined,
             onClick: undoRevert,
           }, t('undoRevert')),
         ]),
