@@ -7,6 +7,8 @@
 - Undo and revert now show what they would do before they do it. The first click on **Undo** asks the host for a dry run and shows one line — how many files would be restored, deleted, left alone, or blocked — plus the first few paths. A blocked preview says which file and why, and the second click then refuses instead of sending a call the host would reject anyway.
 - Revert previews the whole chain, not just the target row: it names how many checkpoints get undone and what the workspace would look like afterwards, so "revert to here" is no longer a blind jump.
 
+- The overview's **View changes** button now opens the plugin's own card in the right sidebar, as a real tab: `checkpoint-diff` claims `dsh-resource://checkpoint-diff/session/<session>/<turn>`, so the diff can be split, floated, or left open beside the conversation. DSH's built-in review is kept as a fallback for shells that never saw the tab type — it only knows git snapshots of a turn, so it used to show "this turn's changes are unavailable" for a checkpoint this plugin wrote.
+
 ### Performance
 
 - The dock no longer parses the whole store every five seconds. A new `listLite` returns one signature per checkpoint; the full list (with patches and file details) is only fetched when a signature changes. On a 53-record store the poll drops from ~12.6 ms of host work to ~1.1 ms.

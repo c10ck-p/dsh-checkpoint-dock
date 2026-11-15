@@ -311,6 +311,8 @@ window.__ModuleLoader__.load({
         diffBinary: '二进制文件不显示文本差异',
         diffTruncated: '差异过大，只显示文件统计',
         diffEmpty: '没有文本差异',
+        diffPageTitle: '检查点变更',
+        diffPageMissing: '这个地址不是一条检查点的变更。',
       },
       en: {
         checkpoints: 'Checkpoints',
@@ -476,6 +478,8 @@ window.__ModuleLoader__.load({
         diffBinary: 'Binary files have no text diff',
         diffTruncated: 'Diff is too large; only file stats are shown',
         diffEmpty: 'No text diff',
+        diffPageTitle: 'Checkpoint changes',
+        diffPageMissing: 'This address is not a checkpoint diff.',
       },
     }
 
@@ -564,6 +568,15 @@ window.__ModuleLoader__.load({
       '.ecp_previewHead{display:block;font-weight:500;color:var(--dsw-alias-label-primary)}',
       '.ecp_previewFiles{display:block;margin-top:2px;font-family:var(--ds-font-family-code);font-size:10px;line-height:15px;color:var(--dsw-alias-label-tertiary);white-space:pre-wrap;word-break:break-all}',
       '.ecp_previewBlocked{display:block;margin-top:2px;color:var(--dsw-alias-state-error-primary)}',
+      '.ecp_diffPage{box-sizing:border-box;height:100%;overflow:auto;padding:14px 16px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary)}',
+      '.ecp_diffPageHead{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}',
+      '.ecp_diffPageTitle{font-size:13px;font-weight:600}',
+      '.ecp_diffPageMeta{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:17px}',
+      '.ecp_diffPageHead .ecp_diffPageMeta{margin-left:auto;font-family:var(--ds-font-family-code)}',
+      '.ecp_diffPageFile{border:.5px solid var(--dsw-alias-border-l1);border-radius:6px;margin-bottom:10px;overflow:hidden;background:var(--dsw-alias-bg-layer-2)}',
+      '.ecp_diffPageFileHead{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--dsw-alias-bg-layer-3,#1f1f1f);border-bottom:.5px solid var(--dsw-alias-border-l1)}',
+      '.ecp_diffPageBody{padding:0 10px 6px}',
+      '.ecp_diffPage .ecp_patch{max-height:none}',
       '.ecp_settings .ecp_crypto .ecp_settingsHint{font-size:11px !important;line-height:16px;margin:4px 0 6px}',
       '.ecp_settings .ecp_cleanup{font-size:11px !important;line-height:17px;color:var(--dsw-alias-label-secondary)}',
       '.ecp_settings .ecp_cleanup .ecp_settingsHint{font-size:11px !important;line-height:16px;margin:4px 0 6px}',
@@ -720,6 +733,160 @@ window.__ModuleLoader__.load({
     }
 
     // --- Resident dock. ---
+    // ──────────────────────────────────────────────────────────────────────
+    // The overview's "view changes" opens a page of its own in the right
+    // sidebar instead of DSH's built-in turn review: that one reads git
+    // snapshots, so a checkpoint written by this plugin shows up there as
+    // "cannot be viewed". This tab reads the stored record instead, and it
+    // splits, floats and stays open like any other sidebar tab.
+    // ──────────────────────────────────────────────────────────────────────
+    var DIFF_KIND = 'checkpoint-diff'
+    var DIFF_ADDRESS = 'dsh-resource://checkpoint-diff/session/'
+
+    /** @param {{sessionId: string, turn: number}} coordinates */
+    function diffAddress(coordinates) {
+      return DIFF_ADDRESS + encodeURIComponent(String(coordinates.sessionId)) + '/' + String(coordinates.turn)
+    }
+
+    /** @param {string} address */
+    function parseDiffAddress(address) {
+      if (typeof address !== 'string' || address.indexOf(DIFF_ADDRESS) !== 0) return null
+      var parts = address.slice(DIFF_ADDRESS.length).split('/')
+      if (parts.length !== 2) return null
+      if (!/^\d+$/.test(parts[1])) return null
+      var turn = Number(parts[1])
+      if (!Number.isSafeInteger(turn) || turn < 1) return null
+      var sessionId
+      try {
+        sessionId = decodeURIComponent(parts[0])
+      } catch (failure) {
+        return null
+      }
+      if (sessionId === '') return null
+      return { sessionId: sessionId, turn: turn }
+    }
+
+    /** One patch as list items; `@@` lines get the muted header style. */
+    function patchItems(patch) {
+      return String(patch || '').split('\n').map(function (line, lineIndex) {
+        if (line.indexOf('@@') === 0) {
+          return createElement('li', { key: 'h' + lineIndex, className: 'ecp_patchLine ecp_patchMeta' }, line)
+        }
+        var kind = line.charAt(0)
+        var extra = kind === '+' ? ' ecp_patchAdd' : kind === '-' ? ' ecp_patchDel' : ''
+        return createElement('li', { key: 'l' + lineIndex, className: 'ecp_patchLine' + extra }, line)
+      })
+    }
+
+    function CheckpointDiffTab(props) {
+      var t = props.t
+      var api = props.api
+      var info = typeof props.useTabInfo === 'function' ? props.useTabInfo() : null
+      var tab = info === null || info === undefined ? null : info.tab
+      var address = ''
+      if (tab !== null && tab !== undefined) {
+        if (typeof tab.contentId === 'string') address = tab.contentId
+        if (address === '' && tab.navigation !== undefined && typeof tab.navigation.address === 'string') {
+          address = tab.navigation.address
+        }
+      }
+      var coordinates = parseDiffAddress(address)
+      var sessionId = coordinates === null ? '' : coordinates.sessionId
+      var turn = coordinates === null ? 0 : coordinates.turn
+
+      var state = useState({ loading: true, diff: null, error: '' })
+      var view = state[0]
+      var setView = state[1]
+
+      useEffect(function () {
+        if (coordinates === null) {
+          setView({ loading: false, diff: null, error: 'missing' })
+          return undefined
+        }
+        var cancelled = false
+        setView({ loading: true, diff: null, error: '' })
+        Promise.resolve(api.diff(sessionId, turn)).then(function (result) {
+          if (cancelled) return
+          if (result === null || result === undefined || result.ok !== true) {
+            var message = result && result.message ? result.message : t('diffUnavailable')
+            setView({ loading: false, diff: null, error: message })
+            return
+          }
+          setView({ loading: false, diff: result, error: '' })
+        }).catch(function (failure) {
+          if (cancelled) return
+          setView({
+            loading: false,
+            diff: null,
+            error: failure && failure.message ? failure.message : t('actionFailed'),
+          })
+        })
+        return function () { cancelled = true }
+      }, [sessionId, turn])
+
+      var children = []
+      children.push(createElement('div', { key: 'head', className: 'ecp_diffPageHead' }, [
+        createElement('span', { key: 'title', className: 'ecp_diffPageTitle' },
+          coordinates === null ? t('diffPageTitle') : format(t, 'title', turn)),
+        coordinates === null
+          ? null
+          : createElement('span', { key: 'turn', className: 'ecp_diffPageMeta' }, format(t, 'rawTurn', turn)),
+      ]))
+
+      if (view.loading) {
+        children.push(createElement('div', { key: 'loading', className: 'ecp_diffPageMeta' }, t('diffLoading')))
+      } else if (view.error === 'missing') {
+        children.push(createElement('div', { key: 'missing', className: 'ecp_diffPageMeta' }, t('diffPageMissing')))
+      } else if (view.error !== '') {
+        children.push(createElement('div', { key: 'failed', className: 'ecp_diffPageMeta' }, view.error))
+      } else {
+        var files = Array.isArray(view.diff.files) ? view.diff.files : []
+        var totalAdded = 0
+        var totalDeleted = 0
+        for (var totalIndex = 0; totalIndex < files.length; totalIndex += 1) {
+          totalAdded += Number(files[totalIndex].added) || 0
+          totalDeleted += Number(files[totalIndex].deleted) || 0
+        }
+        children.push(createElement('div', { key: 'summary', className: 'ecp_diffPageMeta' }, [
+          format(t, 'files', files.length),
+          ' · ',
+          createElement('span', { key: 'a', className: 'ecp_add' }, '+' + String(totalAdded)),
+          createElement('span', { key: 'd', className: 'ecp_del' }, '-' + String(totalDeleted)),
+        ]))
+        if (files.length === 0) {
+          children.push(createElement('div', { key: 'empty', className: 'ecp_diffPageMeta' }, t('diffEmpty')))
+        }
+        for (var fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+          var file = files[fileIndex]
+          var body
+          if (file.binary) {
+            body = createElement('div', { className: 'ecp_diffPageMeta' }, t('diffBinary'))
+          } else if (!file.available) {
+            body = createElement('div', { className: 'ecp_diffPageMeta' }, t('diffUnavailable'))
+          } else if (!file.patch) {
+            body = createElement('div', { className: 'ecp_diffPageMeta' }, t('diffEmpty'))
+          } else {
+            body = createElement('ul', { className: 'ecp_patch' }, patchItems(file.patch))
+          }
+          children.push(createElement('div', { key: file.path + ':' + fileIndex, className: 'ecp_diffPageFile' }, [
+            createElement('div', { key: 'head', className: 'ecp_diffPageFileHead' }, [
+              createElement('span', { key: 'path', className: 'ecp_filePath' }, file.path),
+              createElement('span', { key: 'counts', className: 'ecp_fileCounts' }, [
+                createElement('span', { key: 'a', className: 'ecp_add' }, '+' + String(file.added || 0)),
+                createElement('span', { key: 'd', className: 'ecp_del' }, '-' + String(file.deleted || 0)),
+              ]),
+            ]),
+            file.truncated
+              ? createElement('div', { key: 'trunc', className: 'ecp_diffPageMeta' }, t('diffTruncated'))
+              : null,
+            createElement('div', { key: 'body', className: 'ecp_diffPageBody' }, body),
+          ]))
+        }
+      }
+
+      return createElement('div', { className: 'ecp_diffPage', 'data-checkpoint-diff-page': '' }, children)
+    }
+
     function EditCheckpointsDock(props) {
       var sessionId = props.sessionId
       var api = props.api
@@ -2420,7 +2587,7 @@ window.__ModuleLoader__.load({
             key: 'review',
             type: 'button',
             className: 'ecp_btn',
-            disabled: !openReview || record.seq <= 0,
+            disabled: !openReview,
             onClick: function () {
               try {
                 openReview(record, 0)
@@ -3001,15 +3168,59 @@ window.__ModuleLoader__.load({
         previewRevert: function (sessionId, turn) { return call('get', sessionId, -2000000 - turn) },
       }
 
+      // "View changes" opens our own card in the right sidebar: DSH's built-in
+      // review only knows git snapshots of a turn, so a checkpoint written by
+      // this plugin is unreadable there. The built-in address stays as the
+      // fallback for a shell that never got the tab type.
       var openReview = function (coordinates, index) {
         if (!sidebarRight || typeof sidebarRight.openResource !== 'function') {
           throw new Error('sidebarRight is unavailable')
         }
-        var address = 'dsh-resource://changes-review/session/'
-          + encodeURIComponent(coordinates.sessionId) + '/'
-          + coordinates.seq + '/' + coordinates.turn
-        sidebarRight.openResource(address, { params: { index: index } })
+        try {
+          sidebarRight.openResource(diffAddress({ sessionId: coordinates.sessionId, turn: coordinates.turn }))
+          return
+        } catch (failure) {
+          if (!(coordinates.seq > 0)) throw failure
+        }
+        sidebarRight.openResource(
+          'dsh-resource://changes-review/session/'
+            + encodeURIComponent(coordinates.sessionId) + '/'
+            + coordinates.seq + '/' + coordinates.turn,
+          { params: { index: index } },
+        )
       }
+
+      // A tab type of our own, registered the same way the built-in review
+      // does it, so the card can be split, floated, or left open beside the
+      // conversation.
+      var diffTabId = PACKAGE + '/diff'
+      ctx.inject(['sidebarRightTabs'], function (scope) {
+        var tabs = scope.sidebarRightTabs
+        if (!tabs || typeof tabs.register !== 'function') return undefined
+        var disposeType = tabs.register({
+          id: diffTabId,
+          kind: DIFF_KIND,
+          patterns: ['dsh-resource://checkpoint-diff/**'],
+          priority: 'extension',
+          canOpen: function (address) { return parseDiffAddress(address) !== null },
+          title: function (address) {
+            var parsed = parseDiffAddress(address)
+            return parsed === null ? t('diffPageTitle') : format(t, 'title', parsed.turn)
+          },
+        })
+        return function () {
+          if (typeof disposeType === 'function') disposeType()
+        }
+      })
+
+      ctx.slots.inject('sidebar.right.pane.tab', function () {
+        return ctx.slots.register({
+          name: 'sidebar.right.pane.tab',
+          key: diffTabId,
+          locale: NS,
+          inject: function () { return { api: api, t: t } },
+        }, CheckpointDiffTab)
+      })
 
       ctx.slots.inject('conversation.input.dock', function () {
         return ctx.slots.register({
