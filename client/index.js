@@ -294,6 +294,14 @@ window.__ModuleLoader__.load({
         originExternal: '外部',
         originExternalHint: '这个改动没经过 DSH 的文件工具（shell、脚本或编辑器写的）。',
         cryptoMixed: '检测到加密内容，但加密开关已关闭：旧内容仍能读，新写入会保存为明文。',
+        previewPending: '正在核对这次操作…',
+        previewRestore: '恢复 {n} 个文件',
+        previewDelete: '删除 {n} 个文件',
+        previewSame: '不变 {n} 个',
+        previewBlocked: '受阻 {n} 个',
+        previewNothing: '不会改动任何文件',
+        previewRecords: '会撤销 {n} 条检查点',
+        previewMore: '…另有 {n} 个',
         contentRemoved: '内容已清理',
         recovered: '已恢复',
         diff: '查看所有变更',
@@ -451,6 +459,14 @@ window.__ModuleLoader__.load({
         originExternal: 'external',
         originExternalHint: 'This file was written outside DSH file tools (shell, script, or editor).',
         cryptoMixed: 'Encrypted content found with the switch off: it still opens, but new writes will be plaintext.',
+        previewPending: 'Checking what this would touch…',
+        previewRestore: '{n} restored',
+        previewDelete: '{n} deleted',
+        previewSame: '{n} unchanged',
+        previewBlocked: '{n} blocked',
+        previewNothing: 'nothing on disk would change',
+        previewRecords: 'undoes {n} checkpoints',
+        previewMore: '…and {n} more',
         contentRemoved: 'Content cleaned',
         recovered: 'Recovered',
         diff: 'View all changes',
@@ -544,6 +560,10 @@ window.__ModuleLoader__.load({
       '.ecp_crypto{border-top:.5px solid var(--dsw-alias-border-l1);padding-top:12px;margin-top:12px}',
       '.ecp_revertBanner{display:flex;align-items:center;gap:8px;margin:0 0 6px;padding:6px 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);border:.5px solid var(--dsw-alias-border-l1)}',
       '.ecp_revertBannerText{flex:1 1 auto;min-width:0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary)}',
+      '.ecp_previewBanner{align-items:flex-start}',
+      '.ecp_previewHead{display:block;font-weight:500;color:var(--dsw-alias-label-primary)}',
+      '.ecp_previewFiles{display:block;margin-top:2px;font-family:var(--ds-font-family-code);font-size:10px;line-height:15px;color:var(--dsw-alias-label-tertiary);white-space:pre-wrap;word-break:break-all}',
+      '.ecp_previewBlocked{display:block;margin-top:2px;color:var(--dsw-alias-state-error-primary)}',
       '.ecp_settings .ecp_crypto .ecp_settingsHint{font-size:11px !important;line-height:16px;margin:4px 0 6px}',
       '.ecp_settings .ecp_cleanup{font-size:11px !important;line-height:17px;color:var(--dsw-alias-label-secondary)}',
       '.ecp_settings .ecp_cleanup .ecp_settingsHint{font-size:11px !important;line-height:16px;margin:4px 0 6px}',
@@ -751,6 +771,10 @@ window.__ModuleLoader__.load({
       var confirmRevertState = useState(false)
       var confirmRevert = confirmRevertState[0]
       var setConfirmRevert = confirmRevertState[1]
+      // What the armed action would do, fetched before the second click.
+      var previewState = useState(null)
+      var preview = previewState[0]
+      var setPreview = previewState[1]
       var collapsedState = useState(true)
       var collapsed = collapsedState[0]
       var setCollapsed = collapsedState[1]
@@ -762,6 +786,9 @@ window.__ModuleLoader__.load({
       var setFilterMenuOpen = filterMenuState[1]
       var filterPickerRef = useRef(null)
       var lastSignatureRef = useRef('')
+      // The pending preview must know which row is selected right now, not
+      // which one was selected when the request went out.
+      var selectedTurnRef = useRef(null)
       var pageState = useState(30)
       var visibleLimit = pageState[0]
       var setVisibleLimit = pageState[1]
@@ -806,7 +833,7 @@ window.__ModuleLoader__.load({
             })
           }).catch(function () {})
         }
-        api.list(sessionId).then(function (list) {
+        var applyList = function (list) {
           // A malformed or empty answer is not "this session has no
           // checkpoints": keeping the last good list beats hiding the dock
           // while the host half is still coming up.
@@ -814,26 +841,40 @@ window.__ModuleLoader__.load({
             setLoaded(true)
             return
           }
-          var next = list
-          var signature = next.map(function (record) {
-            return [record.sessionId, record.turn, record.status, record.pinned ? 1 : 0,
-              record.contentRemoved ? 1 : 0, record.added || 0, record.deleted || 0,
-              (record.files || []).map(function (file) { return file.path }).join(','),
-              record.sessionTitle || ''].join(':')
+          setRecords(list)
+          setLoaded(true)
+          setError('')
+          setSelectedTurn(function (current) {
+            if (current !== null && list.some(function (record) { return record.turn === current })) return current
+            return list.length > 0 ? list[list.length - 1].turn : null
+          })
+        }
+        var applyFull = function () {
+          return api.list(sessionId).then(function (list) {
+            if (Array.isArray(list) && list.length === 0 && lastSignatureRef.current !== '') {
+              // The full list came back empty right after the cheap poll said
+              // there are checkpoints: the host half is probably still coming
+              // up, so keep the rows we already have.
+              setLoaded(true)
+              return
+            }
+            applyList(list)
+          })
+        }
+        api.listLite(sessionId).then(function (lite) {
+          // The cheap poll carries one signature per row; patches and file
+          // details are only fetched when one of them changes.
+          if (!Array.isArray(lite)) return applyFull()
+          var signature = sessionId + '\u0000' + lite.map(function (row) {
+            return row !== null && typeof row === 'object' && typeof row.sig === 'string' ? row.sig : ''
           }).join('|')
           if (signature === lastSignatureRef.current) {
             setLoaded(true)
             setError('')
-            return
+            return undefined
           }
           lastSignatureRef.current = signature
-          setRecords(next)
-          setLoaded(true)
-          setError('')
-          setSelectedTurn(function (current) {
-            if (current !== null && next.some(function (record) { return record.turn === current })) return current
-            return next.length > 0 ? next[next.length - 1].turn : null
-          })
+          return applyFull()
         }).catch(function (failure) {
           setLoaded(true)
           setError(failure && failure.message ? failure.message : t('loadFailed'))
@@ -879,6 +920,14 @@ window.__ModuleLoader__.load({
         var timer = setTimeout(function () { setConfirmRevert(false) }, 4000)
         return function () { clearTimeout(timer) }
       }, [confirmRevert])
+
+      useEffect(function () {
+        // The preview belongs to the armed action alone: once both arms are
+        // down (executed, timed out, or the selection changed) drop it.
+        if (confirmTurn !== null || confirmRevert) return undefined
+        setPreview(null)
+        return undefined
+      }, [confirmTurn, confirmRevert])
 
       useEffect(function () {
         if (!filterMenuOpen) return undefined
@@ -934,6 +983,7 @@ window.__ModuleLoader__.load({
         if (records[index].turn === selectedTurn) { selected = records[index]; break }
       }
       if (selected === null && records.length > 0) selected = records[records.length - 1]
+      selectedTurnRef.current = selectedTurn
 
       // Non-resident mode is an activity dock, not a permanent panel: show it
       // only while there is a checkpoint that still needs attention. Once the
@@ -1195,10 +1245,61 @@ window.__ModuleLoader__.load({
 
       var diffAvailable = files.length > 0 && selected.contentRemoved !== true
 
+      // The preview is one line of counts plus the first few paths it would
+      // touch, or the reason it cannot run. It is only shown while the button
+      // is armed, so a stale answer cannot outlive the confirmation.
+      var previewArmed = confirming || confirmRevert
+      // A preview answers for one turn only; an answer that arrived for a row
+      // the user has since left must not be shown as this row's outcome.
+      var previewForSelection = preview !== null && preview.ok === true && preview.turn === selected.turn
+        ? preview
+        : null
+      var previewText = ''
+      var previewBlockedText = ''
+      var previewFilesText = ''
+      // Pending (no answer yet) or a usable answer for the row on screen. A
+      // refusal, or an answer for another turn, hides the banner entirely.
+      var previewVisible = previewArmed && (preview === null || previewForSelection !== null)
+      if (previewArmed) {
+        if (previewForSelection === null) {
+          previewText = t('previewPending')
+        } else {
+          var previewCounts = previewForSelection.counts || {}
+          var previewParts = []
+          if (previewCounts.restore > 0) previewParts.push(format(t, 'previewRestore', previewCounts.restore))
+          if (previewCounts['delete'] > 0) previewParts.push(format(t, 'previewDelete', previewCounts['delete']))
+          if (previewCounts.same > 0) previewParts.push(format(t, 'previewSame', previewCounts.same))
+          if (previewCounts.blocked > 0) previewParts.push(format(t, 'previewBlocked', previewCounts.blocked))
+          if (previewParts.length === 0) previewParts.push(t('previewNothing'))
+          var previewHead = previewParts.join(' · ')
+          if (previewForSelection.kind === 'revert' && typeof previewForSelection.records === 'number' && previewForSelection.records > 0) {
+            previewHead = format(t, 'previewRecords', previewForSelection.records) + ' · ' + previewHead
+          }
+          previewText = previewHead
+          var previewChanged = (previewForSelection.files || []).filter(function (row) {
+            return row.action === 'restore' || row.action === 'delete'
+          })
+          var previewNames = previewChanged.slice(0, 3).map(function (row) {
+            return (row.action === 'delete' ? '− ' : '+ ') + row.display
+          })
+          if (previewChanged.length > previewNames.length) {
+            previewNames.push(format(t, 'previewMore', previewChanged.length - previewNames.length))
+          }
+          previewFilesText = previewNames.join('   ')
+          var previewBlockers = previewForSelection.blockers || []
+          if (previewBlockers.length > 0) {
+            previewBlockedText = previewBlockers.slice(0, 2).map(function (row) {
+              return row && row.message ? row.message : String(row)
+            }).join('；')
+          }
+        }
+      }
+
       var choose = function (turn) {
         setSelectedTurn(turn)
         setConfirmTurn(null)
         setConfirmRevert(false)
+        setPreview(null)
         setShowAllFiles(false)
         setShowDiff(false)
         setDiff(null)
@@ -1355,10 +1456,30 @@ window.__ModuleLoader__.load({
         }
         if (undoDisabled) return
         if (!confirming) {
-          setConfirmTurn(selected.turn)
+          var turnBeingUndone = selected.turn
+          setConfirmTurn(turnBeingUndone)
+          setPreview(null)
+          api.previewUndo(sessionId, turnBeingUndone).then(function (result) {
+            // A newer poll may have moved the selection while this was in
+            // flight; a late answer for another turn would be misleading.
+            if (turnBeingUndone !== selectedTurnRef.current) return
+            // A host half older than this build has no preview route: it
+            // answers with something shapeless. Record that instead of leaving
+            // the banner on "checking" forever.
+            setPreview(result && result.ok === true ? result : { ok: false, turn: turnBeingUndone })
+          }).catch(function () {
+            setPreview({ ok: false, turn: turnBeingUndone })
+          })
+          return
+        }
+        if (previewForSelection !== null && previewForSelection.canApply === false) {
+          // The preview already knows this cannot be applied. Stay armed so the
+          // banner keeps explaining why; the four-second reset disarms it.
+          setError(previewBlockedText !== '' ? previewBlockedText : t('actionFailed'))
           return
         }
         setConfirmTurn(null)
+        setPreview(null)
         setBusy('undo')
         setError('')
         api.undo(sessionId, selected.turn).then(function (result) {
@@ -1382,11 +1503,24 @@ window.__ModuleLoader__.load({
           return
         }
         if (!confirmRevert) {
+          var turnBeingReverted = selected.turn
           setConfirmRevert(true)
           setConfirmTurn(null)
+          setPreview(null)
+          api.previewRevert(sessionId, turnBeingReverted).then(function (result) {
+            if (turnBeingReverted !== selectedTurnRef.current) return
+            setPreview(result && result.ok === true ? result : { ok: false, turn: turnBeingReverted })
+          }).catch(function () {
+            setPreview({ ok: false, turn: turnBeingReverted })
+          })
+          return
+        }
+        if (previewForSelection !== null && previewForSelection.canApply === false) {
+          setError(previewBlockedText !== '' ? previewBlockedText : t('revertFailed'))
           return
         }
         setConfirmRevert(false)
+        setPreview(null)
         setBusy('revert')
         setError('')
         // One Host call: the store preflights the whole newer chain before any
@@ -1732,6 +1866,13 @@ window.__ModuleLoader__.load({
                   active ? createElement('span', { key: 'check', className: 'ecp_sessionCheck' }, '✓') : null,
                 ])
               })) : null,
+          ]),
+        ]),
+        collapsed || !previewVisible ? null : createElement('div', { key: 'previewBanner', className: 'ecp_revertBanner ecp_previewBanner' }, [
+          createElement('span', { key: 'body', className: 'ecp_revertBannerText' }, [
+            createElement('span', { key: 'head', className: 'ecp_previewHead' }, previewText),
+            previewFilesText === '' ? null : createElement('span', { key: 'files', className: 'ecp_previewFiles' }, previewFilesText),
+            previewBlockedText === '' ? null : createElement('span', { key: 'blocked', className: 'ecp_previewBlocked' }, previewBlockedText),
           ]),
         ]),
         collapsed || usage === null || usage.on !== true || usage.limit <= 0 || usage.bytes <= usage.limit
@@ -2853,6 +2994,11 @@ window.__ModuleLoader__.load({
         journal: function () { return call('get', 'journal', -999992) },
         resumeJournal: function () { return call('undo', 'journal:resume', -999992) },
         discardJournal: function () { return call('undo', 'journal:discard', -999991) },
+        // The cheap poll and the two previews reuse the same fixed get route;
+        // their turns sit below every other sentinel in use.
+        listLite: function (sessionId) { return call('get', sessionId, -999990) },
+        previewUndo: function (sessionId, turn) { return call('get', sessionId, -1000000 - turn) },
+        previewRevert: function (sessionId, turn) { return call('get', sessionId, -2000000 - turn) },
       }
 
       var openReview = function (coordinates, index) {

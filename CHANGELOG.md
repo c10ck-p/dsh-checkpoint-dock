@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Undo and revert now show what they would do before they do it. The first click on **Undo** asks the host for a dry run and shows one line — how many files would be restored, deleted, left alone, or blocked — plus the first few paths. A blocked preview says which file and why, and the second click then refuses instead of sending a call the host would reject anyway.
+- Revert previews the whole chain, not just the target row: it names how many checkpoints get undone and what the workspace would look like afterwards, so "revert to here" is no longer a blind jump.
+
+### Performance
+
+- The dock no longer parses the whole store every five seconds. A new `listLite` returns one signature per checkpoint; the full list (with patches and file details) is only fetched when a signature changes. On a 53-record store the poll drops from ~12.6 ms of host work to ~1.1 ms.
+
 ## 0.2.1
 
 ### Added

@@ -1159,3 +1159,199 @@ test('a broken restore listener never fails the restore itself', async () => {
   assert.equal(undo.ok, true, undo.message)
   assert.equal(await fs.readFile(file, 'utf8'), 'one\n')
 })
+
+test('the light poll keeps one compact row per checkpoint and a stable signature', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const file = path.join(cwd, 'a.txt')
+
+  const write = async (turn, body) => {
+    await store.capture({ sessionId: 'session-lite', cwd, turn, absolute: file, prompt: '' })
+    await fs.writeFile(file, body)
+    await store.seal('session-lite', turn, 0)
+  }
+  await write(1, 'one\ntwo\n')
+  await write(2, 'one\nthree\nfour\n')
+
+  const rows = await store.listLite('session-lite')
+  assert.equal(rows.length, 2)
+  assert.deepEqual(rows.map((row) => row.turn), [1, 2])
+  // Nothing heavy travels with the poll: no file list, no blob hashes.
+  assert.equal('files' in rows[0], false)
+  assert.equal(rows[0].fileCount, 1)
+  assert.equal(typeof rows[0].sig, 'string')
+  assert.equal(rows[0].status, 'sealed')
+  assert.equal(rows[1].added, 2)
+  assert.equal(rows[1].deleted, 1)
+
+  // The signature only moves when something the dock draws moves.
+  const again = await store.listLite('session-lite')
+  assert.deepEqual(again.map((row) => row.sig), rows.map((row) => row.sig))
+
+  await store.pin('session-lite', 1)
+  const pinned = await store.listLite('session-lite')
+  assert.notEqual(pinned[0].sig, rows[0].sig)
+  assert.equal(pinned[0].pinned, true)
+  assert.equal(pinned[1].sig, rows[1].sig)
+})
+
+test('an undo preview describes the restore without writing anything', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const kept = path.join(cwd, 'a.txt')
+  const created = path.join(cwd, 'b.txt')
+
+  await fs.writeFile(kept, 'one\n')
+  await store.capture({ sessionId: 'session-preview', cwd, turn: 1, absolute: kept, prompt: '' })
+  await fs.writeFile(kept, 'one changed\n')
+  await store.capture({ sessionId: 'session-preview', cwd, turn: 1, absolute: created, prompt: '' })
+  await fs.writeFile(created, 'brand new\n')
+  await store.seal('session-preview', 1, 0)
+
+  const preview = await store.previewUndo('session-preview', 1)
+  assert.equal(preview.ok, true)
+  assert.equal(preview.kind, 'undo')
+  assert.equal(preview.canApply, true)
+  assert.deepEqual(preview.counts, { restore: 1, delete: 1, same: 0, blocked: 0 })
+  const byPath = new Map(preview.files.map((file) => [file.path, file]))
+  assert.equal(byPath.get('a.txt').action, 'restore')
+  assert.equal(byPath.get('b.txt').action, 'delete')
+
+  // A preview must leave the bytes exactly where they were.
+  assert.equal(await fs.readFile(kept, 'utf8'), 'one changed\n')
+  assert.equal(await fs.readFile(created, 'utf8'), 'brand new\n')
+
+  const applied = await store.undo('session-preview', 1)
+  assert.equal(applied.ok, true, applied.message)
+  assert.equal(await fs.readFile(kept, 'utf8'), 'one\n')
+  await assert.rejects(fs.readFile(created))
+})
+
+test('an undo preview names the blocker instead of only disabling the button', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const file = path.join(cwd, 'a.txt')
+
+  const write = async (turn, body) => {
+    await store.capture({ sessionId: 'session-block', cwd, turn, absolute: file, prompt: '' })
+    await fs.writeFile(file, body)
+    await store.seal('session-block', turn, 0)
+  }
+  await write(1, 'v1\n')
+  await write(2, 'v2\n')
+
+  // A later checkpoint touched the same file.
+  const newer = await store.previewUndo('session-block', 1)
+  assert.equal(newer.canApply, false)
+  assert.equal(newer.blockers[0].code, 'newer-checkpoint')
+  assert.equal(newer.blockers[0].turn, 2)
+  assert.equal(newer.counts.blocked, 1)
+
+  // An outside edit since the checkpoint is a different story.
+  await fs.writeFile(file, 'edited by hand\n')
+  const conflict = await store.previewUndo('session-block', 2)
+  assert.equal(conflict.canApply, false)
+  assert.equal(conflict.blockers[0].code, 'conflict')
+  assert.equal(conflict.blockers[0].path, 'a.txt')
+
+  // Nothing was restored by either preview.
+  assert.equal(await fs.readFile(file, 'utf8'), 'edited by hand\n')
+})
+
+test('a revert preview replays the chain and leaves the files alone', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const file = path.join(cwd, 'a.txt')
+  const later = path.join(cwd, 'b.txt')
+
+  const write = async (turn, body) => {
+    await store.capture({ sessionId: 'session-chain', cwd, turn, absolute: file, prompt: '' })
+    await fs.writeFile(file, body)
+    await store.seal('session-chain', turn, 0)
+  }
+  await write(1, 'v1\n')
+  await write(2, 'v2\n')
+
+  await store.capture({ sessionId: 'session-chain', cwd, turn: 3, absolute: later, prompt: '' })
+  await fs.writeFile(later, 'newer\n')
+  await store.seal('session-chain', 3, 0)
+
+  const preview = await store.previewRevert('session-chain', 1)
+  assert.equal(preview.ok, true)
+  assert.equal(preview.kind, 'revert')
+  assert.equal(preview.canApply, true)
+  assert.equal(preview.anchored, false)
+  assert.equal(preview.records, 2)
+  assert.deepEqual(preview.counts, { restore: 1, delete: 1, same: 0, blocked: 0 })
+  const byPath = new Map(preview.files.map((entry) => [entry.path, entry]))
+  assert.equal(byPath.get('a.txt').action, 'restore')
+  assert.equal(byPath.get('b.txt').action, 'delete')
+
+  assert.equal(await fs.readFile(file, 'utf8'), 'v2\n')
+  assert.equal(await fs.readFile(later, 'utf8'), 'newer\n')
+
+  const applied = await store.revert('session-chain', 1)
+  assert.equal(applied.ok, true, applied.message)
+  assert.equal(await fs.readFile(file, 'utf8'), 'v1\n')
+  await assert.rejects(fs.readFile(later))
+})
+
+test('a revert preview on the newest checkpoint says there is nothing to do', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const file = path.join(cwd, 'a.txt')
+
+  await store.capture({ sessionId: 'session-latest', cwd, turn: 1, absolute: file, prompt: '' })
+  await fs.writeFile(file, 'v1\n')
+  await store.seal('session-latest', 1, 0)
+
+  const preview = await store.previewRevert('session-latest', 1)
+  assert.equal(preview.canApply, false)
+  assert.equal(preview.blockers[0].code, 'latest')
+  assert.equal(await fs.readFile(file, 'utf8'), 'v1\n')
+})
+
+test('a revert preview follows the anchor of a pinned fork', async () => {
+  const { home, root } = await tempHome()
+  const cwd = path.join(home, 'workspace')
+  await fs.mkdir(cwd, { recursive: true })
+  const store = new EditCheckpointStore(root)
+  const file = path.join(cwd, 'a.txt')
+  const later = path.join(cwd, 'b.txt')
+
+  const write = async (turn, body) => {
+    await store.capture({ sessionId: 'session-anchor-preview', cwd, turn, absolute: file, prompt: '' })
+    await fs.writeFile(file, body)
+    await store.seal('session-anchor-preview', turn, 0)
+  }
+  for (let turn = 1; turn <= 6; turn += 1) await write(turn, `v${turn}\n`)
+  await store.capture({ sessionId: 'session-anchor-preview', cwd, turn: 7, absolute: later, prompt: '' })
+  await fs.writeFile(later, 'later\n')
+  await store.seal('session-anchor-preview', 7, 0)
+
+  await store.pin('session-anchor-preview', 1)
+  await store.clean('session-anchor-preview', 5)
+
+  const preview = await store.previewRevert('session-anchor-preview', 1)
+  assert.equal(preview.ok, true)
+  assert.equal(preview.anchored, true)
+  assert.equal(preview.canApply, true)
+  assert.deepEqual(preview.counts, { restore: 1, delete: 1, same: 0, blocked: 0 })
+  const byPath = new Map(preview.files.map((entry) => [entry.path, entry]))
+  assert.equal(byPath.get('a.txt').action, 'restore')
+  assert.equal(byPath.get('b.txt').action, 'delete')
+
+  // Still nothing written.
+  assert.equal(await fs.readFile(file, 'utf8'), 'v6\n')
+  assert.equal(await fs.readFile(later, 'utf8'), 'later\n')
+})
